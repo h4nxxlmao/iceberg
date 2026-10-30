@@ -28,6 +28,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 
 ### Changed
 
+- Relicensed the project from MIT to **GPL-3.0-only**. Releases published before this change remain under the terms they were distributed with.
 - The default widget font is now Lato instead of Segoe UI Variable Display. Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
 - The Paper preset uses Abril Fatface and Quiet uses Space Mono.
 - The Frost preset uses ink text on the light ice surface for contrast.

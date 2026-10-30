@@ -729,7 +729,7 @@
 
         <div class="about">
           <div class="about-wordmark">Iceberg <span class="about-version">{snapshot?.app_version ?? ""}</span></div>
-          <p>MIT licensed. No telemetry. The only network calls go to lrclib.net.</p>
+          <p>GPL-3.0-only licensed. No telemetry. The only network calls go to lrclib.net.</p>
           <p>Source: github.com/h4nxxlmao/iceberg</p>
           <p>Config: <code>{diagnostics?.config_path ?? ""}</code></p>
           <p>WebView2 data: <code>{diagnostics?.webview_path ?? ""}</code></p>

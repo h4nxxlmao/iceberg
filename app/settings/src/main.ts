@@ -995,7 +995,7 @@ function renderAbout(config: Config): string {
     <div class="about-block">
       <div class="about-brand">Iceberg</div>
       <p class="about-copy">A quiet now-playing and synced-lyrics widget for Windows. Version ${escapeHtml(state.version)}.</p>
-      <p class="about-copy">MIT licensed. ${escapeHtml(config.mode)} mode · ${escapeHtml(config.background.kind)} surface.</p>
+      <p class="about-copy">GPL-3.0-only licensed. ${escapeHtml(config.mode)} mode · ${escapeHtml(config.background.kind)} surface.</p>
       <p class="about-copy fine-print">The widget keeps running in the tray when this window closes.</p>
       <div class="about-actions">
         <button class="button secondary" id="close-settings" type="button">Close settings</button>

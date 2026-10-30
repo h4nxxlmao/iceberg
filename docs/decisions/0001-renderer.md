@@ -74,7 +74,7 @@ Three independent blockers:
 
 1. Gate 3 fails in the software renderer, which is the only Slint renderer with acceptable memory.
 2. The GPU renderers (femtovg, Skia) are 3-15x the memory budget and still fail gate 2.
-3. Slint is `GPL-3.0-only OR Slint Royalty-free 2.0 OR Slint Software 3.0`. Iceberg is MIT; adding Slint would relicense the app or require a commercial-style license. That is not acceptable for this repository.
+3. Slint is `GPL-3.0-only OR Slint Royalty-free 2.0 OR Slint Software 3.0`. Iceberg was MIT when this decision was made and is now GPL-3.0-only, so the GPL option is license-compatible. The decision still stands on the measured Gate 3 and memory failures above, not on licensing.
 
 ## Why not wgpu
 

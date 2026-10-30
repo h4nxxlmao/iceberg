@@ -179,4 +179,4 @@ docs/                  design notes, decisions, phase screenshots and measuremen
 
 ## License
 
-By contributing, you agree that your contribution is licensed under the MIT license in [LICENSE](LICENSE).
+By contributing, you agree that your contribution is licensed under the GNU General Public License version 3 only (`GPL-3.0-only`) in [LICENSE](LICENSE).

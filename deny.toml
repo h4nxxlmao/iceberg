@@ -21,6 +21,23 @@ allow = [
 ]
 confidence-threshold = 0.9
 
+# The workspace itself is GPL-3.0-only. Keep the dependency allowlist permissive.
+[[licenses.exceptions]]
+name = "iceberg-core"
+allow = ["GPL-3.0-only"]
+
+[[licenses.exceptions]]
+name = "iceberg-widget"
+allow = ["GPL-3.0-only"]
+
+[[licenses.exceptions]]
+name = "iceberg-settings"
+allow = ["GPL-3.0-only"]
+
+[[licenses.exceptions]]
+name = "xtask"
+allow = ["GPL-3.0-only"]
+
 [bans]
 multiple-versions = "warn"
 deny = [
