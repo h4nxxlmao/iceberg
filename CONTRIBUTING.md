@@ -2,12 +2,26 @@
 
 Thanks for helping. Iceberg is intentionally small and fast; please keep changes focused.
 
+## Native widget workspace (current)
+
+The rebuild lives in `app/core` (shared media, lyrics, config, fonts, presets) and `app/widget` (the native overlay). Only Rust is required for this part.
+
+```powershell
+cd app
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --release -p iceberg-widget
+```
+
+The Tauri/WebView2 prototype in `app/src-tauri` is kept for reference until the new settings app replaces it and is excluded from the workspace. The setup and PR checklist below describe that prototype; the native widget's measurements are in [docs/phase-a/RESULTS.md](docs/phase-a/RESULTS.md).
+
 ## Prerequisites
 
 - Windows 10/11 x64
 - Rust stable (1.90 or newer)
-- Node.js LTS and npm
-- Microsoft Edge WebView2 Runtime (included with Windows 11)
+- Node.js LTS and npm (Tauri prototype only)
+- Microsoft Edge WebView2 Runtime (included with Windows 11, Tauri prototype only)
 
 ## Setup
 

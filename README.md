@@ -6,7 +6,18 @@ A tiny, transparent now-playing and lyrics widget for Windows. It reads the curr
 
 No Spotify login. No API keys. No account. No telemetry. One background process when idle.
 
-![Iceberg widget](docs/screenshot.png)
+> **Rebuild status.** The native widget is now in `app/core` and `app/widget`. The Tauri/WebView2 app in `app/src-tauri` is the previous prototype, kept until the new settings app replaces it.
+>
+> Renderer decision: [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md). Phase A measurements and review screenshots: [docs/phase-a/RESULTS.md](docs/phase-a/RESULTS.md).
+>
+> ```powershell
+> cd app
+> cargo build --release -p iceberg-widget
+> ```
+
+![Previous Tauri prototype](docs/screenshot.png)
+
+The screenshot above is the previous Tauri prototype. Phase A previews of the native renderer are in `docs/phase-a/`.
 
 ## What it does
 

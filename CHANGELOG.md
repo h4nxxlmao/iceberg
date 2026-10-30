@@ -4,16 +4,23 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 
 ## [Unreleased]
 
-### Changed
+### Added
+
+- Native widget workspace (`app/core`, `app/widget`) with per-monitor DPI v2, exact tool-window styles, event-driven SMTC, LRCLIB enhanced word timings, font metric normalization, six presets, cached background and lyric layers, and a lazy tray-only mode.
+- Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).
+- Phase A review screenshots and release measurements in [docs/phase-a/](docs/phase-a/).
+
+### Changed (previous Tauri prototype)
 
 - Rebuilt the widget and settings around the Glacial instrument direction: ink and bone surfaces, a signal orange accent, square controls, a numbered settings index, and a diagnostics ledger.
 - Replaced the old theme presets with Glacier, Paper, Graphite, Ember, Frost, and Cover.
 - Removed the static equalizer and the generated triangle mark from the settings UI.
 - Fixed low-contrast lyric states and added loading and error states to the settings sheet.
 
-### Performance
+### Performance (previous Tauri prototype)
 
 - Release measurement after the redesign: 59.2 MB visible, 11.0 MB hidden, 0.78% of one core in steady lyric playback, 4.07 MB executable, 1.69 MiB installer.
+- Phase A native measurements are in [docs/phase-a/RESULTS.md](docs/phase-a/RESULTS.md).
 
 ## [0.1.0] - 2026-10-27
 
