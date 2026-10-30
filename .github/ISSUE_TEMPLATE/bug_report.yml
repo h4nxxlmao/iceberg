@@ -1,0 +1,61 @@
+name: Bug report
+description: Something is broken or looks wrong
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security issues here. Use the Security tab and private vulnerability reporting.
+
+  - type: input
+    id: version
+    attributes:
+      label: Iceberg version
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 23H2, build 22631
+    validations:
+      required: true
+
+  - type: input
+    id: player
+    attributes:
+      label: Player app
+      description: The app that was playing when it went wrong.
+      placeholder: Spotify desktop, YouTube in Edge, Apple Music
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Play a track in ...
+        2. Hover the widget ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots, logs, or diagnostics
+      description: Remove personal information first. Diagnostics are in Settings → Advanced.
+      render: text
+    validations:
+      required: false

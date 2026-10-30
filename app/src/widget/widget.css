@@ -1,0 +1,424 @@
+:root {
+  color-scheme: dark light;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  font-family: var(--ice-font, "Segoe UI Variable Display"), var(--ice-cjk, "Segoe UI"), "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#app {
+  height: 100%;
+}
+
+.widget {
+  height: 100%;
+  padding: 0;
+  color: var(--ice-text);
+  font-family: var(--ice-font), var(--ice-cjk, "Segoe UI"), sans-serif;
+  font-size: var(--ice-size);
+  font-weight: var(--ice-weight);
+  opacity: 1;
+  transition: opacity 0.35s ease;
+}
+
+.widget.faded {
+  opacity: 0.45;
+}
+
+.widget.faded:hover {
+  opacity: 1;
+}
+
+.shell {
+  box-sizing: border-box;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--ice-radius);
+  border: var(--ice-border);
+  background: var(--ice-bg);
+  box-shadow: var(--ice-shadow);
+  overflow: hidden;
+  contain: layout paint;
+  position: relative;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.cover {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  border: 1px solid var(--ice-line);
+  overflow: hidden;
+  background: var(--ice-soft);
+}
+
+.mode-island .cover {
+  width: 34px;
+  height: 34px;
+}
+
+.mode-lyrics .cover {
+  display: none;
+}
+
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cover.empty {
+  display: grid;
+  place-items: center;
+  color: var(--ice-accent);
+}
+
+.cover svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.status svg,
+.state-mark {
+  pointer-events: none;
+}
+
+.meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.title-wrap,
+.artist-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.title {
+  font-family: "Bahnschrift", var(--ice-font), "Segoe UI", sans-serif;
+  font-size: calc(var(--ice-size) + 0.5px);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.artist {
+  font-size: calc(var(--ice-size) - 2.5px);
+  opacity: 0.7;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.title span,
+.artist span {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.title span.marquee,
+.artist span.marquee {
+  animation: marquee var(--dur, 12s) linear 2 alternate;
+  padding-right: 10px;
+}
+
+.status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--ice-text);
+  opacity: 0.72;
+  white-space: nowrap;
+}
+
+.status svg {
+  width: 10px;
+  height: 10px;
+  fill: var(--ice-accent);
+  opacity: 1;
+}
+
+.time {
+  font-variant-numeric: tabular-nums;
+}
+
+.body {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 auto;
+}
+
+.waterline {
+  height: 1px;
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+  background: var(--ice-line);
+  position: relative;
+}
+
+.waterline::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 1px;
+  background: var(--ice-accent);
+}
+
+.lyrics {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.lyrics.align-center {
+  align-items: center;
+}
+
+.lyric {
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: calc(var(--ice-size) - 1px);
+  line-height: 1.4;
+  text-align: var(--ice-align, left);
+  padding: 1px 0;
+  opacity: 0.7;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  width: 100%;
+  transform: translateY(1px);
+  transition: opacity 0.12s ease;
+}
+
+.lyrics.align-center .lyric {
+  text-align: center;
+  width: auto;
+  max-width: 100%;
+}
+
+.lyric.past {
+  opacity: 0.62;
+}
+
+.lyric.active {
+  opacity: 1;
+  color: var(--ice-accent);
+  transform: translateY(0);
+}
+
+.lyric:focus-visible {
+  outline: 1px solid var(--ice-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+.anim-karaoke .kara,
+.kara {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 1px;
+  width: 100%;
+  background: var(--ice-accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  animation: karaoke var(--kara-dur, 4s) linear forwards;
+  opacity: 0.55;
+}
+
+.mode-lyrics .lyric {
+  font-size: calc(var(--ice-size) + 1px);
+}
+
+.plain {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: calc(var(--ice-size) - 1px);
+  line-height: 1.5;
+  opacity: 0.8;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ice-line) transparent;
+}
+
+.state {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: calc(var(--ice-size) - 1px);
+  opacity: 0.72;
+  min-height: 26px;
+}
+
+.state-mark {
+  width: 2px;
+  height: 13px;
+  flex: 0 0 auto;
+  background: var(--ice-accent);
+}
+
+.progress {
+  height: 2px;
+  background: var(--ice-line);
+  overflow: hidden;
+  flex: 0 0 auto;
+  margin: 1px 0 0;
+  pointer-events: none;
+}
+
+.bar {
+  height: 100%;
+  width: 100%;
+  background: var(--ice-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.mode-lyrics .progress {
+  display: none;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 0 2px;
+}
+
+.empty .state-mark {
+  height: 24px;
+}
+
+.empty-title {
+  font-family: "Bahnschrift", var(--ice-font), "Segoe UI", sans-serif;
+  font-size: calc(var(--ice-size) - 0.5px);
+  font-weight: 600;
+}
+
+.empty-sub {
+  font-size: calc(var(--ice-size) - 2.5px);
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.toast {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 2px;
+  background: var(--ice-text);
+  color: var(--ice-bg-solid);
+  pointer-events: none;
+}
+
+.toast.offset {
+  left: 50%;
+  right: auto;
+  bottom: 50%;
+  transform: translate(-50%, 50%);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.mode-island:not(.expanded) .toast {
+  right: 40px;
+  bottom: 6px;
+}
+
+.mode-island:not(.expanded) .time {
+  display: none;
+}
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+.paused .kara {
+  animation-play-state: paused;
+}
+
+@keyframes karaoke {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  88%,
+  100% {
+    transform: translateX(var(--shift, 0));
+  }
+}

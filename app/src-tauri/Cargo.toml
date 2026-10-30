@@ -1,0 +1,72 @@
+[package]
+name = "iceberg"
+version = "0.1.0"
+description = "A tiny, transparent now-playing and lyrics widget for Windows"
+authors = ["h4nxxlmao"]
+license = "MIT"
+repository = "https://github.com/h4nxxlmao/iceberg"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "iceberg_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.5", default-features = false, features = [
+  "wry",
+  "compression",
+  "common-controls-v6",
+  "tray-icon",
+  "image-png",
+] }
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-plugin-single-instance = "2.5.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2.12.1", default-features = false, features = ["tls", "json", "gzip"] }
+base64 = "0.22"
+rfd = { version = "0.15.4", default-features = false }
+webview2-com = "0.39.1"
+windows = { version = "0.62.2", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Graphics_Imaging",
+  "Media",
+  "Media_Control",
+  "Storage_Streams",
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_ProcessStatus",
+  "Win32_System_SystemInformation",
+  "Win32_System_Threading",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+windows-future = "0.3.2"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

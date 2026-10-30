@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest a change or a new feature
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the situation, not only the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: budget
+    attributes:
+      label: Performance impact
+      description: Iceberg has hard RAM, CPU, and installer budgets. How would this fit?
+      placeholder: "It only runs on track change / adds no polling / ..."
+    validations:
+      required: false
