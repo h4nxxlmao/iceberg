@@ -413,6 +413,9 @@ impl App {
             } else {
                 self.settings_demo = false;
             }
+            if let Some(media) = &self.media {
+                media.request_track();
+            }
             self.user_hidden = false;
             self.pause_hide_at = None;
             self.position_settle = None;
@@ -993,6 +996,21 @@ impl App {
 
     fn on_track(&mut self, track: Track, playback: Playback) {
         self.settings_demo = false;
+        if self
+            .track
+            .as_ref()
+            .map(|current| current.key == track.key)
+            .unwrap_or(false)
+        {
+            self.playback = playback;
+            self.recompute_index(false);
+            self.update_timers();
+            self.update_status();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            return;
+        }
         self.track = Some(track.clone());
         self.playback = playback;
         self.lyrics = None;
@@ -1125,6 +1143,12 @@ impl App {
 
     fn schedule_line_deadline(&mut self) {
         self.next_line = None;
+        // While a line transition is in flight, the transition-end handler owns the next
+        // update. Rescheduling based on the still-old current_index here restarts the same
+        // transition every frame and can freeze the active lyric.
+        if self.transition.is_some() {
+            return;
+        }
         let effective = self.effective();
         if self.playback.status != PlaybackStatus::Playing {
             return;
@@ -1306,6 +1330,7 @@ impl App {
                     self.schedule_pause_hide();
                     return;
                 }
+                self.on_track(track, playback);
                 if let Err(error) = self.ensure_window(event_loop) {
                     eprintln!("iceberg: could not create the widget window: {error}");
                     return;
@@ -1316,13 +1341,17 @@ impl App {
                 if let Some(window) = &self.window {
                     window::show_no_activate(window::hwnd_of(window));
                 }
-                self.on_track(track, playback);
                 self.schedule_pause_hide();
             }
             MediaEvent::Playback(playback) => {
                 self.playback = playback;
                 self.recompute_index(true);
                 self.update_timers();
+                if self.track.is_none() {
+                    if let Some(media) = &self.media {
+                        media.request_track();
+                    }
+                }
                 if self.playback.status == PlaybackStatus::Playing {
                     self.show_for_playback(event_loop);
                 }

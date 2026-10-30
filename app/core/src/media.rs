@@ -40,6 +40,7 @@ pub enum MediaEvent {
 
 pub struct MediaWatcher {
     stop: Arc<AtomicBool>,
+    force_track: Arc<AtomicBool>,
     wake: Sender<()>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -51,8 +52,10 @@ impl MediaWatcher {
         sender: impl Fn(MediaEvent) + Send + 'static,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
+        let force_track = Arc::new(AtomicBool::new(false));
         let (wake, receiver) = mpsc::channel::<()>();
         let stop_for_thread = stop.clone();
+        let force_for_thread = force_track.clone();
         let wake_for_thread = wake.clone();
         let thread = thread::Builder::new()
             .name("iceberg-media".into())
@@ -67,6 +70,7 @@ impl MediaWatcher {
                     config,
                     receiver,
                     stop_for_thread,
+                    force_for_thread,
                     wake_for_thread,
                     sender,
                 ) {
@@ -74,7 +78,19 @@ impl MediaWatcher {
                 }
             })
             .ok();
-        Self { stop, wake, thread }
+        Self {
+            stop,
+            force_track,
+            wake,
+            thread,
+        }
+    }
+
+    /// Ask the media worker to emit the current track even when the metadata has not changed.
+    /// This recovers the native state if a track event was missed or a preview replaced it.
+    pub fn request_track(&self) {
+        self.force_track.store(true, Ordering::SeqCst);
+        let _ = self.wake.send(());
     }
 
     pub fn stop(&mut self) {
@@ -101,6 +117,7 @@ struct Subscription {
 struct Worker {
     manager: SessionManager,
     tx: Sender<()>,
+    force_track: Arc<AtomicBool>,
     config: Arc<Mutex<Config>>,
     cache_dir: PathBuf,
     sender: Box<dyn Fn(MediaEvent) + Send>,
@@ -115,6 +132,7 @@ fn run(
     config: Arc<Mutex<Config>>,
     receiver: Receiver<()>,
     stop: Arc<AtomicBool>,
+    force_track: Arc<AtomicBool>,
     wake: Sender<()>,
     sender: impl Fn(MediaEvent) + Send + 'static,
 ) -> Result<(), String> {
@@ -140,6 +158,7 @@ fn run(
     let mut worker = Worker {
         manager,
         tx: wake.clone(),
+        force_track,
         config,
         cache_dir,
         sender: Box::new(sender),
@@ -231,6 +250,7 @@ impl Worker {
     }
 
     fn refresh(&mut self) {
+        let force_track = self.force_track.swap(false, Ordering::SeqCst);
         let config = self
             .config
             .lock()
@@ -336,7 +356,7 @@ impl Worker {
             source_app: source.clone(),
         };
 
-        if changed {
+        if changed || force_track {
             let (cover_png, accent) = match self.cover_for(&properties, &key) {
                 Some((bytes, accent)) => (Some(bytes), accent),
                 None => (None, None),
