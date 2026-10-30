@@ -2,8 +2,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use iceberg_core::config::{Anchor, BackgroundKind, Config, TransitionStyle, WidgetMode};
+use iceberg_core::config::{
+    Anchor, BackgroundKind, Config, MonitorLayout, TransitionStyle, WidgetMode,
+};
 use iceberg_core::fonts::{stock_font_dir, FontEntry, FontLibrary};
+use iceberg_core::ipc::{IpcStatus, TrackInfo};
 use iceberg_core::lyrics::LyricsService;
 use iceberg_core::media::{MediaEvent, MediaWatcher};
 use iceberg_core::model::{Lyrics, LyricsKind, Playback, PlaybackStatus, Track};
@@ -23,14 +26,21 @@ use crate::demo;
 use crate::dpi::{self, Scale};
 use crate::perf::{self, CpuTimes, MemoryStats};
 use crate::render::{compute_metrics, ArtImage, Content, Metrics, Renderer, Transition, View};
-use crate::tray::{Tray, TrayAction};
+use crate::tray::{HotkeyAction, Tray, TrayAction};
 use crate::window::{self, LayeredSurface, StyleReport};
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)] // Event-loop messages are transient, not a hot allocation path.
 pub enum AppEvent {
     Media(MediaEvent),
     Lyrics { key: String, lyrics: Lyrics },
     Tray(TrayAction),
+    Config(Config),
+    SettingsOpen(bool),
+    ShowWidget,
+    FontsChanged,
+    Visibility(bool),
+    Fullscreen(bool),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -38,6 +48,9 @@ pub struct Options {
     pub demo: bool,
     pub bench: Option<PathBuf>,
     pub screenshot: Option<PathBuf>,
+    pub settings_assets: Option<PathBuf>,
+    pub font_previews: Option<PathBuf>,
+    pub preview_text: Option<String>,
     pub scale_override: Option<f64>,
     pub click_through: Option<bool>,
     pub quit_after: Option<Duration>,
@@ -47,6 +60,15 @@ pub struct Options {
 }
 
 pub fn run(options: Options) -> Result<(), String> {
+    if let Some(directory) = &options.font_previews {
+        return crate::shot::render_font_previews(
+            directory,
+            options
+                .preview_text
+                .as_deref()
+                .unwrap_or("The night city grows"),
+        );
+    }
     let paths = Paths::resolve();
     paths.ensure().map_err(|error| error.to_string())?;
     let config_path = options
@@ -55,14 +77,13 @@ pub fn run(options: Options) -> Result<(), String> {
         .unwrap_or_else(|| paths.config.clone());
     let mut config = Config::load(&config_path);
     config.validate();
+    // Rewrite on every start so prototype-era files are migrated to the current schema.
+    let _ = config.save(&config_path);
     if let Some(mode) = options.mode {
         config.mode = mode;
     }
     if let Some(click_through) = options.click_through {
         config.behavior.click_through = click_through;
-    }
-    if !config_path.exists() {
-        let _ = config.save(&config_path);
     }
     if let Some(background) = options.background {
         config.background.kind = background;
@@ -70,6 +91,9 @@ pub fn run(options: Options) -> Result<(), String> {
 
     if let Some(directory) = &options.screenshot {
         return crate::shot::render_screenshots(&config, directory);
+    }
+    if let Some(directory) = &options.settings_assets {
+        return crate::shot::render_settings_assets(directory);
     }
 
     let instance = if options.bench.is_none() {
@@ -141,8 +165,13 @@ pub struct App {
     options: Options,
     config: Config,
     paths: Paths,
+    config_path: PathBuf,
     proxy: EventLoopProxy<AppEvent>,
     config_shared: Arc<Mutex<Config>>,
+    status_shared: Arc<Mutex<IpcStatus>>,
+    settings_open: bool,
+    settings_demo: bool,
+    ipc_started: bool,
     window: Option<Window>,
     surface: Option<LayeredSurface>,
     hwnd: Option<HWND>,
@@ -156,6 +185,7 @@ pub struct App {
     monitor_rect: [i32; 4],
     window_rect: [i32; 4],
     backdrop_settle: Option<Instant>,
+    layout_dirty: bool,
     last_background_ms: f64,
     first_background_ms: f64,
     last_backdrop_ms: f64,
@@ -178,6 +208,13 @@ pub struct App {
     next_line: Option<Instant>,
     next_progress: Option<Instant>,
     next_frame: Option<Instant>,
+    peek_until: Option<Instant>,
+    peek_restore_hidden: bool,
+    pause_hide_at: Option<Instant>,
+    position_settle: Option<Instant>,
+    fullscreen: bool,
+    fullscreen_hidden: bool,
+    fullscreen_started: bool,
     quit_at: Option<Instant>,
     trim_at: Option<Instant>,
     fetching_key: Option<String>,
@@ -192,14 +229,24 @@ impl App {
         proxy: EventLoopProxy<AppEvent>,
     ) -> Self {
         let shared = Arc::new(Mutex::new(config.clone()));
+        let status_shared = Arc::new(Mutex::new(IpcStatus::default()));
+        let config_path = options
+            .config_path
+            .clone()
+            .unwrap_or_else(|| paths.config.clone());
         let quit_at = options.quit_after.map(|delay| Instant::now() + delay);
         let font_library = FontLibrary::new(stock_font_dir(), paths.fonts.clone());
         Self {
             options,
             config,
             paths,
+            config_path,
             proxy,
             config_shared: shared,
+            status_shared,
+            settings_open: false,
+            settings_demo: false,
+            ipc_started: false,
             window: None,
             surface: None,
             hwnd: None,
@@ -213,6 +260,7 @@ impl App {
             monitor_rect: [0, 0, 0, 0],
             window_rect: [0, 0, 0, 0],
             backdrop_settle: None,
+            layout_dirty: false,
             last_background_ms: 0.0,
             first_background_ms: 0.0,
             last_backdrop_ms: 0.0,
@@ -235,6 +283,13 @@ impl App {
             next_line: None,
             next_progress: None,
             next_frame: None,
+            peek_until: None,
+            peek_restore_hidden: false,
+            pause_hide_at: None,
+            position_settle: None,
+            fullscreen: false,
+            fullscreen_hidden: false,
+            fullscreen_started: false,
             quit_at,
             trim_at: None,
             fetching_key: None,
@@ -273,6 +328,470 @@ impl App {
         self.resolve_active_font(effective)
             .map(|entry| entry.metrics)
             .unwrap_or_default()
+    }
+
+    fn update_status(&self) {
+        let track = self.track.as_ref().map(|track| TrackInfo {
+            key: track.key.clone(),
+            title: track.title.clone(),
+            artist: track.artist.clone(),
+            album: track.album.clone(),
+        });
+        let line = self.lyrics.as_ref().and_then(|lyrics| {
+            self.current_index
+                .and_then(|index| lyrics.lines.get(index))
+                .map(|line| line.text.clone())
+        });
+        if let Ok(mut status) = self.status_shared.lock() {
+            *status = IpcStatus {
+                track,
+                playback: self.playback.clone(),
+                line,
+                line_index: self.current_index,
+            };
+        }
+    }
+
+    fn apply_config(&mut self, config: Config) {
+        let previous = std::mem::replace(&mut self.config, config);
+        self.config.validate();
+        if let Ok(mut shared) = self.config_shared.lock() {
+            *shared = self.config.clone();
+        }
+        if self.config.behavior.click_through != previous.behavior.click_through {
+            if let Some(hwnd) = self.hwnd {
+                self.style = Some(window::set_click_through(
+                    hwnd,
+                    self.config.behavior.click_through,
+                ));
+            }
+        }
+        if self.config.hotkeys != previous.hotkeys {
+            if let Some(tray) = &mut self.tray {
+                tray.set_hotkeys(&self.config.hotkeys);
+            }
+        }
+        if self.config.behavior.start_with_windows != previous.behavior.start_with_windows {
+            crate::autostart::apply(self.config.behavior.start_with_windows);
+        }
+        if self.config.layout.scale != previous.layout.scale {
+            self.scale = Scale::new(self.scale.os, self.config.layout.scale);
+        }
+        if self.config.layout != previous.layout || self.config.mode != previous.mode {
+            self.layout_dirty = true;
+        }
+        let globals_changed = self.config.layout.anchor != previous.layout.anchor
+            || self.config.layout.offset_x != previous.layout.offset_x
+            || self.config.layout.offset_y != previous.layout.offset_y
+            || self.config.layout.scale != previous.layout.scale
+            || self.config.layout.width != previous.layout.width;
+        let mut cleared_positions = false;
+        if globals_changed && !self.config.layout.per_monitor.is_empty() {
+            self.config.layout.per_monitor.clear();
+            cleared_positions = true;
+        }
+        self.recompute_index(false);
+        self.update_timers();
+        self.schedule_pause_hide();
+        if cleared_positions {
+            self.persist_config();
+        }
+        self.background_dirty = true;
+        self.text_dirty = true;
+        self.update_status();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn handle_settings_open(&mut self, event_loop: &ActiveEventLoop, open: bool) {
+        self.settings_open = open;
+        if open {
+            if self.track.is_none() {
+                self.settings_demo = true;
+                self.seed_demo();
+            } else {
+                self.settings_demo = false;
+            }
+            self.user_hidden = false;
+            self.pause_hide_at = None;
+            self.position_settle = None;
+            self.fullscreen_hidden = false;
+            if let Err(error) = self.ensure_window(event_loop) {
+                eprintln!("iceberg: settings preview window failed: {error}");
+                return;
+            }
+            if let Some(hwnd) = self.hwnd {
+                window::show_no_activate(hwnd);
+            }
+            self.background_dirty = true;
+            self.text_dirty = true;
+            self.update_timers();
+            self.update_status();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        } else {
+            if self.settings_demo {
+                self.settings_demo = false;
+                self.track = None;
+                self.lyrics = None;
+                self.art = None;
+                self.content = Content::Empty;
+                self.current_index = None;
+                self.transition = None;
+                self.transition_end = None;
+                self.fetching_key = None;
+                self.next_line = None;
+                self.next_progress = None;
+            }
+            self.update_status();
+            if self.track.is_none() && !self.options.demo && self.options.bench.is_none() {
+                self.destroy_window();
+            } else if self.fullscreen
+                && self.config.behavior.hide_on_fullscreen
+                && !self.user_hidden
+            {
+                self.fullscreen_hidden = true;
+                self.pause_hide_at = None;
+                self.next_line = None;
+                self.next_progress = None;
+                self.next_frame = None;
+                self.transition = None;
+                self.transition_end = None;
+                self.backdrop_settle = None;
+                if let Some(hwnd) = self.hwnd {
+                    window::hide(hwnd);
+                }
+                self.trim_at = Some(Instant::now() + Duration::from_millis(300));
+            } else {
+                self.schedule_pause_hide();
+                self.update_timers();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+        }
+    }
+
+    fn handle_show_widget(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_none() {
+            if self.track.is_none() {
+                self.settings_demo = true;
+                self.seed_demo();
+            }
+            if let Err(error) = self.ensure_window(event_loop) {
+                eprintln!("iceberg: could not show the preview: {error}");
+                return;
+            }
+        }
+        self.user_hidden = false;
+        if let Some(hwnd) = self.hwnd {
+            window::show_no_activate(hwnd);
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn handle_fonts_changed(&mut self) {
+        self.font_library.clear();
+        self.font_entry = None;
+        self.font_request.clear();
+        self.background_dirty = true;
+        self.text_dirty = true;
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn handle_fullscreen(&mut self, event_loop: &ActiveEventLoop, fullscreen: bool) {
+        self.fullscreen = fullscreen;
+        if !self.config.behavior.hide_on_fullscreen {
+            if self.fullscreen_hidden {
+                self.show_after_fullscreen(event_loop);
+            }
+            return;
+        }
+        if fullscreen {
+            if self.settings_open || self.user_hidden || self.window.is_none() {
+                return;
+            }
+            self.fullscreen_hidden = true;
+            self.pause_hide_at = None;
+            self.next_line = None;
+            self.next_progress = None;
+            self.next_frame = None;
+            self.transition = None;
+            self.transition_end = None;
+            self.backdrop_settle = None;
+            if let Some(hwnd) = self.hwnd {
+                window::hide(hwnd);
+            }
+            self.trim_at = Some(Instant::now() + Duration::from_millis(300));
+        } else if self.fullscreen_hidden {
+            self.show_after_fullscreen(event_loop);
+        }
+    }
+
+    fn show_after_fullscreen(&mut self, event_loop: &ActiveEventLoop) {
+        self.fullscreen_hidden = false;
+        if self.user_hidden || self.settings_open {
+            return;
+        }
+        if self.window.is_none() {
+            if self.track.is_none() {
+                return;
+            }
+            if let Err(error) = self.ensure_window(event_loop) {
+                eprintln!("iceberg: could not restore the widget after fullscreen: {error}");
+                return;
+            }
+        }
+        if let Some(hwnd) = self.hwnd {
+            window::show_no_activate(hwnd);
+        }
+        self.background_dirty = true;
+        self.text_dirty = true;
+        self.recompute_index(false);
+        self.update_timers();
+        self.update_status();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn persist_config(&mut self) {
+        self.config.validate();
+        if let Err(error) = self.config.save(&self.config_path) {
+            eprintln!("iceberg: could not save the config: {error}");
+        }
+        if let Ok(mut shared) = self.config_shared.lock() {
+            *shared = self.config.clone();
+        }
+    }
+
+    fn toggle_click_through(&mut self) {
+        self.config.behavior.click_through = !self.config.behavior.click_through;
+        if let Some(hwnd) = self.hwnd {
+            self.style = Some(window::set_click_through(
+                hwnd,
+                self.config.behavior.click_through,
+            ));
+        }
+        self.persist_config();
+    }
+
+    fn cycle_mode(&mut self) {
+        self.config.mode = match self.config.mode {
+            WidgetMode::Card => WidgetMode::Lyrics,
+            WidgetMode::Lyrics => WidgetMode::Island,
+            WidgetMode::Island => WidgetMode::Card,
+        };
+        self.persist_config();
+        self.background_dirty = true;
+        self.text_dirty = true;
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn adjust_current_offset(&mut self, delta_ms: i64) {
+        let Some(track) = &self.track else {
+            return;
+        };
+        let current = self.config.per_song_offset(&track.key);
+        self.config.set_song_offset(&track.key, current + delta_ms);
+        self.persist_config();
+        self.recompute_index(false);
+        self.update_timers();
+        self.update_status();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn start_peek(&mut self, event_loop: &ActiveEventLoop, duration: Duration) {
+        let restore = self.user_hidden || self.window.is_none();
+        self.peek_restore_hidden = restore;
+        if restore {
+            self.set_visibility(event_loop, true);
+        }
+        self.peek_until = Some(Instant::now() + duration);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn set_visibility(&mut self, event_loop: &ActiveEventLoop, visible: bool) {
+        if visible {
+            self.user_hidden = false;
+            self.pause_hide_at = None;
+            self.fullscreen_hidden = false;
+            if let Err(error) = self.ensure_window(event_loop) {
+                eprintln!("iceberg: could not show the widget: {error}");
+                return;
+            }
+            if let Some(hwnd) = self.hwnd {
+                window::show_no_activate(hwnd);
+            }
+            let effective = self.effective();
+            self.ensure_wallpaper(&effective);
+            self.background_dirty = true;
+            self.recompute_index(false);
+            self.update_timers();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        } else {
+            self.user_hidden = true;
+            self.peek_until = None;
+            self.peek_restore_hidden = false;
+            self.next_line = None;
+            self.next_progress = None;
+            self.next_frame = None;
+            self.transition = None;
+            self.transition_end = None;
+            self.backdrop_settle = None;
+            if let Some(hwnd) = self.hwnd {
+                window::hide(hwnd);
+            }
+            self.trim_at = Some(Instant::now() + Duration::from_millis(300));
+        }
+    }
+
+    fn launch_settings(&self) {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let Some(directory) = exe.parent() else {
+            return;
+        };
+        let settings = directory.join("iceberg-settings.exe");
+        if let Err(error) = std::process::Command::new(&settings).spawn() {
+            eprintln!("iceberg: could not launch {}: {error}", settings.display());
+        }
+    }
+
+    fn schedule_pause_hide(&mut self) {
+        if self.settings_open
+            || self.user_hidden
+            || self.window.is_none()
+            || self.playback.status != PlaybackStatus::Paused
+        {
+            self.pause_hide_at = None;
+            return;
+        }
+        let seconds = self.config.behavior.pause_hide_seconds;
+        self.pause_hide_at =
+            (seconds > 0).then(|| Instant::now() + Duration::from_secs(u64::from(seconds)));
+    }
+
+    fn show_for_playback(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() || self.user_hidden || self.settings_open || self.fullscreen_hidden
+        {
+            return;
+        }
+        self.fullscreen = crate::fullscreen::foreground_is_fullscreen();
+        if self.fullscreen && self.config.behavior.hide_on_fullscreen {
+            self.fullscreen_hidden = true;
+            return;
+        }
+        if let Err(error) = self.ensure_window(event_loop) {
+            eprintln!("iceberg: could not recreate the widget window: {error}");
+            return;
+        }
+        if let Some(hwnd) = self.hwnd {
+            window::show_no_activate(hwnd);
+        }
+        self.background_dirty = true;
+        self.text_dirty = true;
+        self.update_timers();
+        self.update_status();
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn settle_window_position(&mut self) {
+        if self.user_hidden || self.fullscreen_hidden {
+            return;
+        }
+        let (Some(hwnd), Some(metrics)) = (
+            self.hwnd,
+            self.renderer
+                .as_ref()
+                .and_then(|renderer| renderer.metrics.clone()),
+        ) else {
+            return;
+        };
+        let width = self.window_rect[2].max(1);
+        let height = self.window_rect[3].max(1);
+        let work = window::work_area(hwnd);
+        let mut x = self.window_rect[0];
+        let mut y = self.window_rect[1];
+        if self.config.behavior.edge_snap {
+            let (next_x, next_y) = window::snap_position(work, x, y, width, height, 16);
+            if (next_x, next_y) != (x, y) {
+                window::place(hwnd, next_x, next_y, width, height);
+                x = next_x;
+                y = next_y;
+                self.background_dirty = true;
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+        }
+        self.window_rect[0] = x;
+        self.window_rect[1] = y;
+        if self.monitor_name.is_empty() {
+            return;
+        }
+        let scale = self.scale.effective();
+        let card_w = metrics.card_w.round() as i32;
+        let card_h = metrics.card_h.round() as i32;
+        let margin = metrics.margin.round() as i32;
+        let anchors = [
+            Anchor::TopLeft,
+            Anchor::TopCenter,
+            Anchor::TopRight,
+            Anchor::CenterLeft,
+            Anchor::Center,
+            Anchor::CenterRight,
+            Anchor::BottomLeft,
+            Anchor::BottomCenter,
+            Anchor::BottomRight,
+        ];
+        let mut best: Option<(Anchor, i32, i32, i64)> = None;
+        for anchor in anchors {
+            let (base_x, base_y) = window::anchored_position(
+                work, width, height, card_w, card_h, margin, anchor, 0, 0,
+            );
+            let distance = i64::from(x - base_x).pow(2) + i64::from(y - base_y).pow(2);
+            if best
+                .map(|(_, _, _, best_distance)| distance < best_distance)
+                .unwrap_or(true)
+            {
+                let offset_x = ((x - base_x) as f64 / scale).round() as i32;
+                let offset_y = ((y - base_y) as f64 / scale).round() as i32;
+                best = Some((anchor, offset_x, offset_y, distance));
+            }
+        }
+        let Some((anchor, offset_x, offset_y, _)) = best else {
+            return;
+        };
+        let layout = MonitorLayout {
+            anchor,
+            offset_x,
+            offset_y,
+        };
+        if self.config.layout.per_monitor.get(&self.monitor_name) != Some(&layout) {
+            self.config
+                .layout
+                .per_monitor
+                .insert(self.monitor_name.clone(), layout);
+            self.persist_config();
+        }
     }
 
     fn ensure_wallpaper(&mut self, effective: &Config) {
@@ -427,6 +946,9 @@ impl App {
         self.wallpaper = None;
         self.wallpaper_path = None;
         self.backdrop_settle = None;
+        self.position_settle = None;
+        self.pause_hide_at = None;
+        self.fullscreen_hidden = false;
         self.last_background_ms = 0.0;
         self.first_background_ms = 0.0;
         self.last_backdrop_ms = 0.0;
@@ -465,10 +987,12 @@ impl App {
         self.text_dirty = true;
         let effective = self.effective();
         self.resolve_active_font(&effective);
+        self.update_status();
         self.update_timers();
     }
 
     fn on_track(&mut self, track: Track, playback: Playback) {
+        self.settings_demo = false;
         self.track = Some(track.clone());
         self.playback = playback;
         self.lyrics = None;
@@ -543,14 +1067,17 @@ impl App {
         let effective = self.effective();
         let Some(track) = &self.track else {
             self.current_index = None;
+            self.update_status();
             return;
         };
         let Some(lyrics) = &self.lyrics else {
             self.current_index = None;
+            self.update_status();
             return;
         };
         if lyrics.kind != LyricsKind::Synced || lyrics.lines.is_empty() {
             self.current_index = None;
+            self.update_status();
             return;
         }
         let offset = effective.effective_offset(&track.key);
@@ -587,6 +1114,7 @@ impl App {
                 self.transition_end = None;
             }
         }
+        self.update_status();
         self.update_timers();
     }
 
@@ -691,6 +1219,27 @@ impl App {
         }
         self.window_rect[2] = metrics.window_w.max(1);
         self.window_rect[3] = metrics.window_h.max(1);
+        if (size_changed || self.layout_dirty) && !self.user_hidden {
+            if let Some(hwnd) = self.hwnd {
+                let work = window::work_area(hwnd);
+                let (anchor, offset_x, offset_y) = monitor_layout(&effective, &self.monitor_name);
+                let scale = self.scale.effective();
+                let (x, y) = window::anchored_position(
+                    work,
+                    metrics.window_w,
+                    metrics.window_h,
+                    metrics.card_w as i32,
+                    metrics.card_h as i32,
+                    metrics.margin as i32,
+                    anchor,
+                    (offset_x as f64 * scale).round() as i32,
+                    (offset_y as f64 * scale).round() as i32,
+                );
+                window::place(hwnd, x, y, metrics.window_w, metrics.window_h);
+                self.window_rect = [x, y, metrics.window_w, metrics.window_h];
+            }
+            self.layout_dirty = false;
+        }
         let background_started = Instant::now();
         let backdrop = if self.background_dirty {
             self.build_backdrop(&effective, &metrics)
@@ -740,11 +1289,23 @@ impl App {
                 surface.present(hwnd);
             }
         }
+        self.update_status();
     }
 
     fn handle_media(&mut self, event_loop: &ActiveEventLoop, event: MediaEvent) {
         match event {
             MediaEvent::Track { track, playback } => {
+                self.fullscreen = crate::fullscreen::foreground_is_fullscreen();
+                if self.fullscreen && self.config.behavior.hide_on_fullscreen && !self.settings_open
+                {
+                    self.fullscreen_hidden = true;
+                    if let Some(hwnd) = self.hwnd {
+                        window::hide(hwnd);
+                    }
+                    self.on_track(track, playback);
+                    self.schedule_pause_hide();
+                    return;
+                }
                 if let Err(error) = self.ensure_window(event_loop) {
                     eprintln!("iceberg: could not create the widget window: {error}");
                     return;
@@ -756,16 +1317,29 @@ impl App {
                     window::show_no_activate(window::hwnd_of(window));
                 }
                 self.on_track(track, playback);
+                self.schedule_pause_hide();
             }
             MediaEvent::Playback(playback) => {
                 self.playback = playback;
                 self.recompute_index(true);
                 self.update_timers();
+                if self.playback.status == PlaybackStatus::Playing {
+                    self.show_for_playback(event_loop);
+                }
+                self.schedule_pause_hide();
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
             }
             MediaEvent::Stopped | MediaEvent::NoSession => {
+                self.pause_hide_at = None;
+                self.position_settle = None;
+                if self.settings_open {
+                    self.settings_demo = true;
+                    self.seed_demo();
+                    self.update_timers();
+                    return;
+                }
                 self.track = None;
                 self.lyrics = None;
                 self.art = None;
@@ -780,6 +1354,7 @@ impl App {
                     let effective = self.effective();
                     self.resolve_active_font(&effective);
                 }
+                self.update_status();
                 self.update_timers();
                 if !self.options.demo && self.options.bench.is_none() {
                     self.destroy_window();
@@ -800,37 +1375,26 @@ impl App {
     fn handle_tray(&mut self, event_loop: &ActiveEventLoop, action: TrayAction) {
         match action {
             TrayAction::ToggleVisibility => {
-                if self.user_hidden {
-                    self.user_hidden = false;
-                    if let Err(error) = self.ensure_window(event_loop) {
-                        eprintln!("iceberg: could not show the widget: {error}");
-                        return;
-                    }
-                    if let Some(hwnd) = self.hwnd {
-                        window::show_no_activate(hwnd);
-                    }
-                    let effective = self.effective();
-                    self.ensure_wallpaper(&effective);
-                    self.background_dirty = true;
-                    self.recompute_index(false);
-                    self.update_timers();
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
-                } else {
-                    self.user_hidden = true;
-                    self.next_line = None;
-                    self.next_progress = None;
-                    self.next_frame = None;
-                    self.transition = None;
-                    self.transition_end = None;
-                    self.backdrop_settle = None;
-                    if let Some(hwnd) = self.hwnd {
-                        window::hide(hwnd);
-                    }
-                    self.trim_at = Some(Instant::now() + Duration::from_millis(300));
-                }
+                let visible = self.user_hidden || self.window.is_none();
+                self.set_visibility(event_loop, visible);
             }
+            TrayAction::Settings => self.launch_settings(),
+            TrayAction::ClickThrough => self.toggle_click_through(),
+            TrayAction::CycleMode => self.cycle_mode(),
+            TrayAction::Hotkey(action) => match action {
+                HotkeyAction::Toggle => {
+                    let visible = self.user_hidden || self.window.is_none();
+                    self.set_visibility(event_loop, visible);
+                }
+                HotkeyAction::ClickThrough => self.toggle_click_through(),
+                HotkeyAction::OffsetUp => self.adjust_current_offset(100),
+                HotkeyAction::OffsetDown => self.adjust_current_offset(-100),
+                HotkeyAction::Mode => self.cycle_mode(),
+                HotkeyAction::Peek => {
+                    self.start_peek(event_loop, Duration::from_secs(3));
+                }
+                HotkeyAction::Settings => self.launch_settings(),
+            },
             TrayAction::Quit => event_loop.exit(),
         }
     }
@@ -1065,6 +1629,23 @@ impl App {
 
 impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.options.bench.is_none() && !self.ipc_started {
+            self.ipc_started = true;
+            crate::ipc_server::start(
+                self.proxy.clone(),
+                self.config_shared.clone(),
+                self.status_shared.clone(),
+                self.config_path.clone(),
+            );
+        }
+        if self.options.bench.is_none() && !self.fullscreen_started {
+            self.fullscreen_started = true;
+            self.fullscreen = crate::fullscreen::foreground_is_fullscreen();
+            crate::fullscreen::start(self.proxy.clone());
+        }
+        if self.options.bench.is_none() {
+            crate::autostart::apply(self.config.behavior.start_with_windows);
+        }
         if self.options.demo || self.options.bench.is_some() {
             self.seed_demo();
             if let Err(error) = self.ensure_window(event_loop) {
@@ -1082,7 +1663,10 @@ impl ApplicationHandler<AppEvent> for App {
         }
         if self.options.bench.is_none() {
             match Tray::new(self.proxy.clone()) {
-                Ok(tray) => self.tray = Some(tray),
+                Ok(mut tray) => {
+                    tray.set_hotkeys(&self.config.hotkeys);
+                    self.tray = Some(tray);
+                }
                 Err(error) => eprintln!("iceberg: tray unavailable: {error}"),
             }
         }
@@ -1165,6 +1749,7 @@ impl ApplicationHandler<AppEvent> for App {
                 }
                 let effective = self.effective();
                 self.ensure_wallpaper(&effective);
+                self.position_settle = Some(Instant::now() + Duration::from_millis(160));
                 if needs_wallpaper(effective.background.kind) {
                     self.backdrop_settle = Some(Instant::now() + Duration::from_millis(120));
                     if monitor_changed {
@@ -1190,6 +1775,17 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::Media(event) => self.handle_media(event_loop, event),
             AppEvent::Lyrics { key, lyrics } => self.on_lyrics(key, lyrics),
             AppEvent::Tray(action) => self.handle_tray(event_loop, action),
+            AppEvent::Config(config) => {
+                self.apply_config(config);
+                if !self.config.behavior.hide_on_fullscreen && self.fullscreen_hidden {
+                    self.show_after_fullscreen(event_loop);
+                }
+            }
+            AppEvent::SettingsOpen(open) => self.handle_settings_open(event_loop, open),
+            AppEvent::ShowWidget => self.handle_show_widget(event_loop),
+            AppEvent::FontsChanged => self.handle_fonts_changed(),
+            AppEvent::Visibility(visible) => self.set_visibility(event_loop, visible),
+            AppEvent::Fullscreen(fullscreen) => self.handle_fullscreen(event_loop, fullscreen),
         }
     }
 
@@ -1261,6 +1857,33 @@ impl ApplicationHandler<AppEvent> for App {
                 next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
             }
         }
+        if let Some(deadline) = self.pause_hide_at {
+            if now >= deadline {
+                self.pause_hide_at = None;
+                if self.playback.status == PlaybackStatus::Paused
+                    && !self.settings_open
+                    && !self.user_hidden
+                {
+                    self.destroy_window();
+                }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
+        if let Some(deadline) = self.peek_until {
+            if now >= deadline {
+                self.peek_until = None;
+                if self.peek_restore_hidden {
+                    self.peek_restore_hidden = false;
+                    self.set_visibility(event_loop, false);
+                    if self.track.is_none() && !self.options.demo && self.options.bench.is_none() {
+                        self.destroy_window();
+                    }
+                }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
         if let Some(deadline) = self.backdrop_settle {
             if now >= deadline {
                 self.backdrop_settle = None;
@@ -1268,6 +1891,14 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
+        if let Some(deadline) = self.position_settle {
+            if now >= deadline {
+                self.position_settle = None;
+                self.settle_window_position();
             } else {
                 next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
             }

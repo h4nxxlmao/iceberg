@@ -18,6 +18,13 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Native WIC wallpaper capture with a 960 px proxy and cover crop, cached title/artist masks, a 120 ms move settle, and a 400 px textured-processing cap.
 - Phase C review screenshots and measurements in [docs/phase-c/RESULTS.md](docs/phase-c/RESULTS.md).
 - A `--background=solid|transparent|acrylic|ice|liquid` diagnostic override.
+- A real settings companion and a persistent per-session named-pipe IPC channel. The settings window is created on demand, applies changes to the running widget, and exits completely when closed. Closing it removes the preview and leaves the widget in the tray.
+- Settings sections for appearance, typography, layout, lyrics, playback, hotkeys, and about; live native preset/surface thumbnails; story-style font specimens rendered by the widget's own cosmic-text/swash path; font upload through a native file dialog.
+- Editable global hotkeys for show/hide, click-through, ±100 ms lyric offset, mode cycling, quick peek, and opening settings, with validation in the backend.
+- Tray menu entries for Settings, click-through, and mode cycling; a project tray icon.
+- Pause auto-hide, fullscreen auto-hide via a foreground WinEvent hook, per-monitor remembered positions with edge snapping, optional start with Windows through HKCU, and live mode selection.
+- `cargo xtask`: native preview/thumbnail generation plus portable and NSIS release packaging. The NSIS installer bundles the widget as a sidecar and the fonts/presets/surfaces as resources.
+- Updated CI, release, and security workflows for the settings frontend, sidecar, portable ZIP, and SHA-256 checksums.
 
 ### Changed
 
@@ -26,15 +33,24 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - The Frost preset uses ink text on the light ice surface for contrast.
 - Text masks are composited with their premultiplied alpha, fixing thin antialiased edges.
 - Textured windows load the wallpaper only while a textured surface is active and drop the proxy with the window.
+- Added friendly hotkey defaults (`Ctrl+Alt+I`, `Ctrl+Alt+L`, arrows, comma) while keeping the old `KeyI`/`ArrowRight` forms valid.
+- Config files are rewritten to the current schema at startup, so a prototype-era file is migrated even before Settings is opened.
+- The tray button now uses the bundled project icon.
+- Settings changes are saved by the widget after validation; the settings focus refresh no longer overwrites an edit that began while the refresh was in flight.
+- The settings font picker uses native specimens from the widget rather than WebView font faces.
 
 ### Fixed
 
 - Font name-table lookup now keeps scanning records when the first matching record cannot be decoded, so Lato and other stock fonts resolve their family names correctly.
+- A one-shot IPC race where the demo preview could close as soon as a command connection ended. The settings now holds one persistent connection, and the widget still closes the preview on an actual disconnect.
+- A focus-refresh race that could silently discard the first settings change.
+- The font specimen renderer no longer rewrites the live config; it returns before config loading and the single-instance path.
 
 ### Performance
 
 - Phase B release measurements (median of three) at 100/150/200%: 5.39/8.08/12.93% of one core during 12 cached-text transitions (0.34/0.51/0.81% of total CPU), 20.6/23.2/26.8 MB working set, 6.9/9.1/12.0 MB private. Idle CPU is 0% at 100/150%; two 200% samples read 0.78% of one core. Release executable 3.20 MiB plus 2.85 MiB of font assets; background rebuilds during transitions remain 0.
-- Phase C wallpaper surfaces (median of three, 100%/200%): transition total 0.51–1.52%, idle 0%, 20.6–30.3 MB working set, 6.9–15.1 MB private. Warm background rebuild: 7.3 ms Solid, 37.7–54.4 ms textured at 100%, 113.9–207.5 ms at 200%; the 200% Liquid path is the most expensive opt-in surface. Backdrop rebuilds during transitions remain 0. Release executable 3.23 MiB; raw widget assets with fonts 6.09 MiB; installer not built yet.
+- Phase C wallpaper surfaces (median of three, 100%/200%): transition total 0.51–1.52%, idle 0%, 20.6–30.3 MB working set, 6.9–15.1 MB private. Warm background rebuild: 7.3 ms Solid, 37.7–54.4 ms textured at 100%, 113.9–207.5 ms at 200%; the 200% Liquid path is the most expensive opt-in surface. Backdrop rebuilds during transitions remain 0. Release executable 3.23 MiB; raw widget assets with fonts 6.09 MiB. Phase C did not include the settings companion or installer.
+- Final Phase D/E release: widget **3.49 MiB**, settings **3.02 MiB**, NSIS installer **3.52 MiB**, portable ZIP **4.98 MiB**, bundled fonts **2.85 MiB**. One-sample release memory: **21.9 MB working set / 6.8 MB private** visible with the demo; **0.2 MB trimmed working set / 2.8 MB private** tray-only. Validation: 79 tests passed, 1 ignored live LRCLIB test; formatting, clippy with `-D warnings`, settings frontend build, portable and installer builds all passed.
 
 ### Changed (previous Tauri prototype)
 

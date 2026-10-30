@@ -1,9 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod autostart;
 mod backdrop;
 mod demo;
 mod dpi;
+mod fullscreen;
+mod ipc_server;
 mod perf;
 mod render;
 mod shot;
@@ -43,6 +46,9 @@ Usage: iceberg [options]
   --scale=100|150|200    override the monitor scale for layout testing
   --click-through        start with mouse input passing through the widget
   --screenshot=DIR       render review screenshots and exit
+  --settings-assets=DIR   render preset and surface thumbnails and exit
+  --font-previews=DIR     render native font specimens and exit
+  --preview-text=TEXT     text used by the font specimens
   --bench=FILE           run the cached-text transition benchmark and exit
   --quit-after=SECONDS   exit automatically
   --config=FILE          use a specific config file
@@ -88,6 +94,12 @@ fn parse_args(args: &[String]) -> Result<app::Options, String> {
                     options.scale_override = Some(os);
                 } else if let Some(value) = arg.strip_prefix("--screenshot=") {
                     options.screenshot = Some(PathBuf::from(value));
+                } else if let Some(value) = arg.strip_prefix("--settings-assets=") {
+                    options.settings_assets = Some(PathBuf::from(value));
+                } else if let Some(value) = arg.strip_prefix("--font-previews=") {
+                    options.font_previews = Some(PathBuf::from(value));
+                } else if let Some(value) = arg.strip_prefix("--preview-text=") {
+                    options.preview_text = Some(value.to_string());
                 } else if let Some(value) = arg.strip_prefix("--bench=") {
                     options.bench = Some(PathBuf::from(value));
                 } else if let Some(value) = arg.strip_prefix("--quit-after=") {

@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: app/settings/package-lock.json
 
       - name: Cache Rust
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -32,40 +32,55 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            app/src-tauri/target
-          key: ${{ runner.os }}-release-cargo-${{ hashFiles('app/src-tauri/Cargo.lock') }}
+            app/target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('app/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-release-cargo-
 
       - name: Install Rust components
         run: rustup component add rustfmt clippy
 
-      - name: Install frontend dependencies
-        working-directory: app
+      - name: Install settings frontend
+        working-directory: app/settings
         run: npm ci
 
       - name: Test
-        working-directory: app/src-tauri
-        run: cargo test
-
-      - name: Build installer
         working-directory: app
-        run: npm run tauri build
+        run: cargo test --workspace
+
+      - name: Build app and installer
+        working-directory: app
+        run: cargo xtask package
+
+      - name: Package portable build
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "app/dist/Iceberg")) { throw "Portable build missing" }
+          Compress-Archive -Path "app/dist/Iceberg" -DestinationPath "app/dist/Iceberg-portable.zip" -Force
 
       - name: Write checksums
         shell: pwsh
         run: |
-          $installer = Get-ChildItem "app/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
+          $installer = @(
+            Get-ChildItem "app/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue
+            Get-ChildItem "app/settings/src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue
+          ) | Select-Object -First 1
           if (-not $installer) { throw "No installer found" }
-          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
-          $line = "$hash  $($installer.Name)"
-          Set-Content -Path "SHA256SUMS.txt" -Value $line -Encoding ascii
-          Write-Output $line
+          Copy-Item $installer.FullName "app/dist/$($installer.Name)"
+          $portable = Get-Item "app/dist/Iceberg-portable.zip"
+          $lines = @()
+          foreach ($file in @($installer, $portable)) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+            $lines += "$hash  $($file.Name)"
+          }
+          $lines | Set-Content -Path "app/dist/SHA256SUMS.txt" -Encoding ascii
+          $lines
+          "INSTALLER=$($installer.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Publish release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $installer = Get-ChildItem "app/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
-          gh release create $env:GITHUB_REF_NAME $installer.FullName "SHA256SUMS.txt" --title "Iceberg $env:GITHUB_REF_NAME" --generate-notes
+          $installer = Get-Item "app/dist/$env:INSTALLER"
+          gh release create $env:GITHUB_REF_NAME $installer.FullName "app/dist/Iceberg-portable.zip" "app/dist/SHA256SUMS.txt" --title "Iceberg $env:GITHUB_REF_NAME" --generate-notes

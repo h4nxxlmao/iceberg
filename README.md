@@ -6,64 +6,91 @@ A tiny, transparent now-playing and synced-lyrics widget for Windows. It reads t
 
 No Spotify login. No API keys. No account. No telemetry. No WebView in the widget.
 
-> **Rebuild status.** The native widget lives in `app/core` and `app/widget`. The settings app, installer, hotkeys, and remaining desktop polish are still in progress. The Tauri/WebView2 app in `app/src-tauri` is the previous prototype and is not the current build.
->
-> Renderer decision: [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md). Native measurements and review screenshots: [Phase A](docs/phase-a/RESULTS.md), [Phase B](docs/phase-b/RESULTS.md), and [Phase C](docs/phase-c/RESULTS.md).
-
 ![Native Card preview](docs/phase-b/card-100.png)
 
-Offscreen render over a neutral review backdrop. The real widget is a transparent layered window on the desktop.
+Offscreen native render over a neutral review backdrop. The real widget is a transparent layered window on the desktop. The settings companion is a separate WebView2 process that exists only while you are editing settings.
 
-## Current native widget
+## What it does
 
-- Frameless, always-on-top widget with Island, Card, and Lyrics-only modes
+- Frameless, always-on-top native widget with Island, Card, and Lyrics modes
 - Event-driven Windows SMTC now-playing; no polling loop
 - Time-synced lyrics from [LRCLIB](https://lrclib.net), with plain-text, instrumental, loading, empty, unsynced, and offline states
-- Cached static background and shaped lyric masks; a lyric transition redraws only the text layer
-- Five surfaces: Solid, Transparent, Acrylic, Ice, and Liquid glass. The three textured surfaces share one CPU wallpaper backdrop pipeline, with no DWM acrylic.
+- Five surfaces: Solid, Transparent, Acrylic, Ice, and Liquid. The textured surfaces share one CPU wallpaper pipeline; there is no DWM acrylic.
 - Slide, fade, and off transitions, plus the configured active color, inactive opacity, alignment, case, letter spacing, line height, shadow, and outline
-- Eight bundled OFL serif, sans, mono, handwritten, condensed, rounded, and display families, loaded lazily and normalized for optical size and baseline. Font picker and upload UI come with the settings app.
-- Per-song lyric offsets and per-song font overrides in the config schema
-- Tray show/hide/quit, drag-to-move, click-through option, demo mode, and offscreen screenshot/benchmark diagnostics
-- Exact tool-window styles set and verified in code: borderless, no activate, topmost, layered, no taskbar button, never foreground
-- Tray-only mode creates no window and loads no font data until playback exists
+- Eight bundled OFL families with lazy per-family loading, cap-height optical scaling, and baseline normalization
+- Six presets, a story-style font picker, and `.ttf`/`.otf` upload in the settings companion
+- Per-track lyric offsets and font overrides
+- Tray show/hide, settings, click-through, mode cycling, and quit
+- Global hotkeys: toggle, click-through, ±100 ms lyric offset, cycle mode, quick peek, and open settings
+- Edge snapping and a remembered position for each monitor
+- Pause auto-hide, fullscreen auto-hide, optional start with Windows, battery saver, and reduced motion
+- Click-through is restored from the tray or its hotkey
+- Tray-only mode creates no window, no WebView, and loads no font data until playback exists
 
-The settings app is a separate process that will be created on demand and exit completely when closed. It is not built yet.
+The settings window is the real widget's preview: while it is open, the native widget shows the current track or a demo track. Closing Settings removes the preview and leaves the widget in the tray. Settings itself exits completely.
+
+![Settings appearance](docs/phase-d/settings-appearance.png)
+
+![Settings typography](docs/phase-d/settings-typography.png)
+
+## Install
+
+Download the current installer or portable ZIP from [GitHub Releases](https://github.com/h4nxxlmao/iceberg/releases).
+
+- The installer is per-user and does not require administrator rights.
+- The settings companion uses the Microsoft WebView2 runtime. Windows 11 includes it; the installer can fetch it on Windows 10.
+- Windows builds are unsigned, so SmartScreen may show an “Unknown publisher” warning. Verify the SHA-256 checksum attached to the release before choosing **More info → Run anyway**.
+- The portable ZIP contains `iceberg.exe`, `iceberg-settings.exe`, the fonts, presets, surface thumbnails, and icons. Run `iceberg-settings.exe` or `iceberg.exe`.
 
 ## Build from source
 
-Requirements: Windows 10/11 x64 and a stable Rust toolchain.
+Requirements: Windows 10/11 x64, Rust stable 1.90 or newer, Node.js 22 LTS, and the WebView2 runtime for the settings window.
 
 ```powershell
 cd app
-cargo build --release -p iceberg-widget
-cargo test --workspace
+npm --prefix settings ci
+cargo xtask package
 ```
 
-Run the widget with the built-in demo instead of a media session:
+`cargo xtask package` builds the frontend, the release widget and settings executables, the portable folder at `app/dist/Iceberg`, and an NSIS installer under `app/target/release/bundle/nsis`. The installer step downloads the Tauri NSIS tool the first time and needs network access; the portable folder is produced before that step.
+
+For a quick native run with the built-in demo:
 
 ```powershell
 cargo run -p iceberg-widget -- --demo
 cargo run -p iceberg-widget -- --demo --background=liquid
 ```
 
-Render review screenshots and exit:
+For the settings app in development, build the widget first so the settings can launch it, then run the Tauri dev server:
+
+```powershell
+cargo build -p iceberg-widget
+npm --prefix settings run tauri -- dev --no-watch
+```
+
+The settings executable lives next to `iceberg.exe` in `app/target/debug`; the companion process looks for it there. In a packaged build, both executables and the assets are installed together.
+
+Regenerate the native preset and surface thumbnails after changing presets or surfaces:
+
+```powershell
+cargo xtask
+```
+
+Render review screenshots with the synthetic wallpaper instead of the build machine's desktop:
 
 ```powershell
 cargo run -p iceberg-widget -- --screenshot=../docs/phase-c
 ```
 
-Run the warm transition and background benchmark:
+Run the warm transition benchmark:
 
 ```powershell
 cargo run -p iceberg-widget -- --bench=../docs/phase-c/bench-100-acrylic.json --background=acrylic --scale=100
 ```
 
-The release executable is `app/target/release/iceberg.exe`. For a packaged build, `app/assets/fonts` is copied to a `fonts` folder next to the executable. The installer and settings app are not available yet; do not use the old `npm run tauri build` path for the native widget.
+## Performance
 
-## Measurements
-
-Windows 11, release build, default Lato, 12 lyric transitions at 200 ms with 240 ms spacing, 2.9 s transition window plus a 2 s idle window after a 200 ms settle. Three runs per surface; the table shows the median. Total CPU is normalized across the build machine's 16 logical processors. Working set and private bytes are for `iceberg.exe`; there are no child processes. The warm background column is the rebuild after a move settle, with the font and meta masks already warm; the value after the slash is the backdrop pipeline alone.
+The surface renderer is unchanged from the Phase C measurements. The final build adds the local settings pipe, fullscreen hook, global hotkeys, and tray actions; the release size and one-sample memory figures below include them. The table is the median of three release runs; total CPU is normalized across the build machine's 16 logical processors. Working set and private bytes are for `iceberg.exe`; there are no child processes while the widget is visible. The warm background column is the rebuild after a move settle with masks already warm; the value after the slash is the backdrop pipeline alone.
 
 | Surface | Scale | Window | Transition CPU total | Idle | Working set / private | Warm background / pipeline |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -76,79 +103,85 @@ Windows 11, release build, default Lato, 12 lyric transitions at 200 ms with 240
 | Ice | 200% | 776 x 490 | 1.25% | 0% | 30.2 / 14.4 MB | 113.9 / 57.1 ms |
 | Liquid | 200% | 776 x 490 | 1.52% | 0% | 30.3 / 15.1 MB | 207.5 / 103.9 ms |
 
-- All transition CPU totals are under 3%; the highest one-core median is 24.25% at 200% Liquid. Full one-core ranges and raw JSON are in [Phase C results](docs/phase-c/RESULTS.md).
+- All transition CPU totals are under 3%; the highest one-core median is 24.25% at 200% Liquid. Full one-core ranges, raw JSON, and the surface previews are in [Phase C results](docs/phase-c/RESULTS.md).
 - Background rebuilds during the 12 transitions: **0**. Idle CPU is 0% for every surface after the settle.
-- The 200% Liquid rebuild is the most expensive opt-in surface. Solid is the default and rebuilds in 7.3 ms at 100%; the textured surfaces are selected explicitly.
-- The widget stays under the 40 MB software budget at 30.3 MB working set. Release executable **3.23 MiB**; bundled fonts **2.85 MiB**. The installer is not built yet.
-- The tray-only process loads no wallpaper and no font data. The last clean tray-only measurement was 3.3 MB working set / 2.6 MB private; window teardown drops the wallpaper proxy and font cache. A fresh tray-only sample on this machine was blocked by a live media session.
-- Phase B's 100/150/200 scale sweep for the solid surface is in [Phase B results](docs/phase-b/RESULTS.md); real mixed-DPI monitor moves remain untested.
+- The 200% Liquid rebuild is the most expensive opt-in surface. Solid is the default. Textured processing is capped at 400 px and sampled into the card; the 100% path is unchanged.
+- The final Phase D/E release executable is **3.49 MiB**; settings companion **3.02 MiB**; NSIS installer **3.52 MiB**; portable ZIP **4.98 MiB**; bundled fonts **2.85 MiB**. All are inside the executable and installer budgets.
+- A final visible demo sample measured **21.9 MB working set / 6.8 MB private**; a tray-only release sample measured **0.2 MB trimmed working set / 2.8 MB private**. These are single samples, not the median-of-three renderer table.
+- Tray-only mode loads no wallpaper and no font data. Window teardown drops the wallpaper proxy and font cache.
+- Real mixed-DPI monitor moves, Windows 10, and the 20-minute leak run are still on the verification list. The settings window's WebView2 process is separate and only exists while Settings is open.
 
-## Backgrounds
+## How the surfaces work
 
-- **Solid** uses the configured color and opacity. **Transparent** leaves the window clear so the actual desktop shows through. **Acrylic**, **Ice**, and **Liquid** mirror the Windows wallpaper behind the card through a shared CPU pipeline: crop, blur, tint/frost/noise, optional liquid refraction and highlights, then an antialiased rounded shape.
-- The wallpaper is read from the Windows wallpaper path, decoded with WIC, and kept as a 960 px proxy. Only a textured surface loads it. The widget cover-crops that proxy to the monitor and window, so fit, tile, stretch, and span wallpaper modes are approximate rather than exact mirrors.
-- The backdrop is recomputed after a 120 ms move settle, on resize, and on monitor change. The static card layer and title/artist masks are cached; a lyric transition still redraws only the text layer. Textured processing is capped at 400 px and then sampled into the card, which keeps the 200% cost down without changing the 100% path.
-- No DWM acrylic, `SetWindowCompositionAttribute`, or `DwmEnableBlurBehindWindow` calls are used. Live desktop capture is out of v1; the `live` backdrop source falls back to the wallpaper. Wallpaper changes are picked up on window create/show/move, not while the widget sits still. Per-monitor wallpapers are not mirrored yet.
-- The Phase C screenshots use a generated review wallpaper so the build machine's desktop is not published. See [docs/phase-c](docs/phase-c/README.md).
+- **Solid** uses the configured color and opacity. **Transparent** leaves the actual desktop visible. **Acrylic**, **Ice**, and **Liquid** mirror the Windows wallpaper through one CPU pipeline: crop, blur, tint/frost/noise, optional liquid refraction and highlights, then an antialiased rounded shape.
+- The wallpaper is read from the Windows wallpaper path, decoded with WIC, and kept as a 960 px proxy. Only a textured surface loads it. The proxy is cover-cropped to the monitor and window, so fit, tile, stretch, and span wallpaper modes are approximate.
+- The backdrop is rebuilt after a 120 ms move settle, on resize, and on monitor change. The static card layer, title/artist masks, and text are cached.
+- No DWM acrylic, `SetWindowCompositionAttribute`, or `DwmEnableBlurBehindWindow` is used. Live desktop capture is out of v1; the `live` backdrop source falls back to the wallpaper. Per-monitor wallpapers and wallpaper changes while the widget sits still are not mirrored yet.
+- The review screenshots use a generated wallpaper so the build machine's desktop is not published.
 
-## Typography
+## Fonts
 
-The stock families are Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC, Space Mono, Varela Round, and Lobster. Each is SIL Open Font License 1.1; the license texts and sources are in [app/assets/fonts](app/assets/fonts/README.md).
+The stock families are Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC, Space Mono, Varela Round, and Lobster. Each is SIL Open Font License 1.1; licenses and sources are in [app/assets/fonts](app/assets/fonts/README.md).
 
-User fonts are read from `%LOCALAPPDATA%\Iceberg\fonts`. The core validates the file, rejects empty or oversized files, reads family/subfamily/metrics/variable axes, and falls back to Lato if a requested family cannot be resolved. Weight uses the family's bold face when available and a synthetic embolden above 600 when it is not; italic is a synthetic shear so the control remains real for families without an italic file.
+Imported fonts are stored in `%LOCALAPPDATA%\Iceberg\fonts`. The core validates the file, rejects empty or oversized files, reads family/subfamily/metrics/variable axes, and falls back to Lato if a requested family cannot be resolved. Weight uses the family's bold face when available and a synthetic embolden above 600 when it is not; italic is a synthetic shear, so the control works for families without an italic file.
 
-Word timings from enhanced LRC are parsed by the core but are not highlighted yet.
+The settings font picker renders the current lyric line in every installed family. Font data is loaded one family at a time and the preview is the native glyph rasterizer, not a browser imitation of the widget.
 
-The font previews use the same card at every family: 388 x 245 at 100%. Optical size and baseline are normalized from each font's cap height and ascender; line spacing stays on the user's line-height grid so the widget does not resize when the family changes.
+Word timings from enhanced LRC are parsed but word-level highlighting is not implemented yet.
 
-## Configuration and data
+## Settings and configuration
 
 | Path | Contents |
 | --- | --- |
-| `%APPDATA%\Iceberg\config.json` | Settings, per-song offsets and font overrides, presets |
+| `%APPDATA%\Iceberg\config.json` | Settings, per-track offsets and font overrides, per-monitor positions |
 | `%LOCALAPPDATA%\Iceberg\cache` | Lyrics and artwork cache |
-| `%LOCALAPPDATA%\Iceberg\fonts` | User-imported font files |
-| `%LOCALAPPDATA%\Iceberg\presets` | User presets |
+| `%LOCALAPPDATA%\Iceberg\fonts` | Imported font files |
+| `%LOCALAPPDATA%\Iceberg\presets` | User preset folder reserved for a later release |
+| `%LOCALAPPDATA%\Iceberg\widget.log` | Reserved diagnostic log path |
 
-The config is versioned, migrated, and validated on load. Missing or invalid values fall back to defaults instead of crashing. Older configs that referenced system fonts are migrated to the closest stock family.
+The config is versioned, migrated, and validated on load. Missing or invalid values fall back to defaults. Obsolete prototype-era config files are rewritten to the current schema at startup. Changes from the settings window are applied to the running widget over a per-session named pipe and saved immediately; closing the settings window closes the pipe and removes the preview.
+
+Global hotkeys are editable in Settings. At least one modifier is required. If a shortcut is already used by another application, the widget leaves it unregistered and prints a diagnostic to its console.
 
 ## Privacy and security
 
 - The only network requests Iceberg makes go to `lrclib.net` over HTTPS, with timeouts and response size limits.
 - The textured surfaces read the current Windows wallpaper file locally through WIC. The widget does not capture other windows or the live desktop.
-- Lyrics, titles, artists, and artwork are untrusted data. The native renderer draws them as text; there is no HTML or WebView in the widget.
-- No telemetry, analytics, accounts, or crash reporting.
-- Font files and config are validated before use. The widget's Tauri capabilities will be least-privilege when the settings app lands.
-- No remote content is loaded in the settings app.
+- Lyrics, titles, artists, artwork, and imported font names are untrusted. The native widget draws them as text; it contains no HTML or WebView. The settings window loads only bundled local assets under a strict CSP and escapes display text.
+- The widget contains no telemetry or analytics. The settings companion has only the Tauri `core:default` permissions; it has no filesystem, shell, or arbitrary HTTP permission.
+- The local settings pipe is scoped to the interactive Windows session and exposes only appearance commands. It does not expose files, secrets, network requests, or privilege changes.
+- Autostart uses only the current user's `Run` key and can be turned off in Settings.
+- Font files and config are validated at the boundary. Imported fonts are copied under generated names inside the app's own folder.
 
 See [SECURITY.md](SECURITY.md) for reporting.
 
 ## Not done yet
 
-- Settings app, named-pipe IPC, presets UI, font picker and font upload UI
-- Installer and resource packaging
-- Global hotkeys, per-track offset hotkeys, fullscreen auto-hide, idle auto-hide, edge snapping, lock, and real multi-monitor/DPI moves
-- Windows 10 verification, two-monitor testing, and the 20-minute leak run
+- Windows 10 verification, two-monitor mixed-DPI testing, and the 20-minute leak run
 - Word-level lyric highlighting
-- Exact wallpaper fit/tile/span mapping, per-monitor wallpapers, live wallpaper-change detection, and live desktop capture
-- A cheaper 200% Liquid rebuild; the current opt-in surface is 207.5 ms after a move settle
+- Exact wallpaper fit/tile/span mapping, per-monitor wallpapers, and live wallpaper-change detection
+- Live desktop capture
+- A cheaper 200% Liquid rebuild; the current opt-in surface is the most expensive path
 
-The old Tauri prototype under `app/src-tauri` is kept for reference only. The current widget does not use WebView2.
+The old Tauri prototype under `app/src-tauri` is kept for reference only. Neither the widget nor the published settings companion uses it.
 
 ## Project layout
 
 ```
 app/
-  core/          shared config, SMTC, LRCLIB, cache, fonts, presets, IPC schema
-  widget/        native always-on widget, renderer, tray, diagnostics
-  assets/fonts/  bundled OFL font files and licenses
-  src-tauri/     previous Tauri prototype (reference only)
-docs/            design notes, renderer decision, phase screenshots and measurements
+  core/              shared config, SMTC, LRCLIB, cache, fonts, presets, IPC schema
+  widget/            native layered widget, renderer, tray, hotkeys, wallpaper capture
+  settings/          Tauri settings companion and vanilla TypeScript UI
+  xtask/             native thumbnail and release packaging helper
+  assets/            fonts, licenses, preset/surface thumbnails, tray icon
+  src-tauri/         previous Tauri prototype (reference only)
+docs/                renderer decision, phase screenshots, measurements
+.github/             CI, release, and security workflows
 ```
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` from `app` before opening a pull request.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and `npm --prefix settings run build` from `app` before opening a pull request.
 
 ## License
 

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "widget"]
+members = ["core", "widget", "settings/src-tauri", "xtask"]
 exclude = ["src-tauri"]
 
 [workspace.package]

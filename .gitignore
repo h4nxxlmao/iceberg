@@ -24,3 +24,6 @@ AGENTS.md
 .commandcode/
 anti-slop/
 app/src-tauri/gen/
+app/settings/src-tauri/gen/
+app/settings/src-tauri/binaries/
+app/settings/src-tauri/resources/

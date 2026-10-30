@@ -48,6 +48,20 @@ impl Paths {
     }
 }
 
+pub fn assets_dir() -> PathBuf {
+    let installed = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    if let Some(dir) = installed {
+        for candidate in [dir.join("assets"), dir.join("resources").join("assets")] {
+            if candidate.join("fonts").is_dir() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

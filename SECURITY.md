@@ -26,9 +26,10 @@ You can expect an acknowledgement within 7 days and an initial assessment within
 
 In scope:
 
-- The Iceberg desktop app and its installer
-- The LRCLIB request path, cache handling, and `.lrc`/theme import paths
-- Tauri capabilities, CSP, and WebView2 configuration
+- The native Iceberg widget, the settings companion, and the installer
+- The LRCLIB request path and cache handling
+- The local settings IPC pipe and the settings WebView2 configuration
+- Font import, config validation, and the HKCU autostart entry
 - Memory-safety issues in the Rust and Windows API code
 
 Out of scope:
@@ -40,14 +41,18 @@ Out of scope:
 
 ## Security design notes
 
+- The widget is native Rust. It creates a layered window directly and has no WebView or browser engine.
 - Iceberg listens to Windows SMTC locally. It does not read player credentials, cookies, or files.
-- Iceberg's own requests only go to `lrclib.net`, over HTTPS. Responses are size-limited and parsed defensively. WebView2 background networking is disabled and no remote content is loaded.
-- The webview loads only bundled local assets under a strict Content Security Policy. There is no remote content, asset protocol, or eval.
-- Lyrics, titles, artists, and theme names are untrusted and rendered as text. The app does not use `innerHTML`.
-- Config, cache, and WebView2 data live in Iceberg's own folders. Imported files are limited in size; themes are validated before use.
-- Tauri capabilities are limited to events and dragging. No filesystem, shell, or arbitrary HTTP permissions are exposed to the frontend.
-- Iceberg runs WebView2 in single-process mode for its memory budget. This is not an officially supported Microsoft configuration. The page is local-only, served under CSP, and the app performs no navigation. This trade-off is documented in the README; if you find a concrete exploit path that depends on it, report it privately.
+- Iceberg's own network requests only go to `lrclib.net`, over HTTPS. Responses are size-limited and parsed defensively.
+- The settings companion uses WebView2 only while the window is open. It loads bundled local assets under a strict CSP; there is no remote content, asset protocol, or eval.
+- The settings frontend has no filesystem, shell, or HTTP permission. It calls a small set of app commands: read/update config, read fonts and preview images, import a font through a native file dialog, and reveal the widget.
+- Lyrics, titles, artists, and imported font family names are untrusted. The widget renders lyric text natively; the settings UI inserts display text as text nodes or escaped HTML. Images are native renderer output or local font data.
+- The settings process and widget talk over a per-session named pipe. Any process in the same interactive Windows session can open that pipe and ask the widget to change its own appearance; the protocol exposes no secrets, file reads, network access, or privilege escalation. A local attacker who can run code in the session already controls the desktop.
+- Config, cache, and imported fonts live in Iceberg's own folders. The config is validated and clamped on load and on every IPC update. Font files are size-limited, parsed, and written under generated names inside the app's font folder; path traversal is rejected.
+- Tauri capabilities for the settings window are `core:default` only. No filesystem, shell, or arbitrary HTTP permissions are exposed to the frontend.
+- Autostart writes only to `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Iceberg` and can be turned off in Settings.
+- The old Tauri prototype under `app/src-tauri` is reference material and is not part of the built or published app.
 
 ## Dependency and release checks
 
-CI runs Rust formatting, clippy, and tests on Windows. The security workflow runs `cargo audit` and `npm audit --omit=dev` weekly and on lockfile changes. Installers are built from tagged source with the official Tauri action and published with SHA-256 checksums.
+CI runs Rust formatting, clippy, tests, and both release builds on Windows. The security workflow runs `cargo audit` and `npm audit --omit=dev` weekly and on lockfile changes. Releases are built from tagged source with the local `xtask`/Tauri NSIS pipeline and published with SHA-256 checksums.

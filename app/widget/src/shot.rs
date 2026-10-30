@@ -3,10 +3,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use iceberg_core::config::{BackgroundKind, Config, WidgetMode};
-use iceberg_core::fonts::{stock_font_dir, FontEntry, FontLibrary, FontMetrics, STOCK_FONTS};
+use iceberg_core::fonts::{self, stock_font_dir, FontEntry, FontLibrary, FontMetrics, STOCK_FONTS};
 use iceberg_core::model::{Lyrics, Playback, Track};
 use iceberg_core::paths::Paths;
 use iceberg_core::presets::builtin_presets;
+use serde::Serialize;
 
 use crate::backdrop::{BackdropCrop, Wallpaper};
 use crate::demo;
@@ -364,6 +365,138 @@ pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), Strin
          `app/assets/fonts/<family>/OFL.txt`.\n",
     )
     .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+pub fn render_settings_assets(directory: &Path) -> Result<(), String> {
+    let presets_dir = directory.join("presets");
+    let surfaces_dir = directory.join("surfaces");
+    std::fs::create_dir_all(&presets_dir).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&surfaces_dir).map_err(|error| error.to_string())?;
+    let paths = Paths::resolve();
+    let mut library = FontLibrary::new(stock_font_dir(), paths.fonts);
+    let mut renderer = Renderer::new();
+    let card = demo::track();
+    let lyrics = demo::lyrics();
+    let playback = demo::playback();
+    let synced = Content::Synced;
+    let wallpaper = synthetic_wallpaper();
+    let crop = wallpaper.crop_cover([0, 0, 1920, 1080], [760, 418, 388, 245], 388, 245);
+
+    for preset in builtin_presets() {
+        let mut config = Config::default();
+        preset.apply_to(&mut config);
+        config.per_song.clear();
+        let font = SceneFont::resolve(&mut library, &config, Some(&card));
+        let view = scene_view_with_backdrop(
+            &config,
+            &font,
+            WidgetMode::Card,
+            Some(&card),
+            &playback,
+            Some(&lyrics),
+            &synced,
+            Some(2),
+            74_000,
+            Scale::new(1.0, 100),
+            Some(&crop),
+        );
+        render_scene(
+            &mut renderer,
+            &view,
+            &presets_dir.join(format!("{}.png", preset.id)),
+        )?;
+    }
+
+    for (kind, preset_id) in [
+        (BackgroundKind::Solid, "ink"),
+        (BackgroundKind::Transparent, "clear"),
+        (BackgroundKind::Acrylic, "ink"),
+        (BackgroundKind::Ice, "frost"),
+        (BackgroundKind::Liquid, "glass"),
+    ] {
+        let mut config = Config::default();
+        if let Some(preset) = builtin_presets()
+            .into_iter()
+            .find(|preset| preset.id == preset_id)
+        {
+            preset.apply_to(&mut config);
+        }
+        config.background.kind = kind;
+        config.per_song.clear();
+        let font = SceneFont::resolve(&mut library, &config, Some(&card));
+        let view = scene_view_with_backdrop(
+            &config,
+            &font,
+            WidgetMode::Card,
+            Some(&card),
+            &playback,
+            Some(&lyrics),
+            &synced,
+            Some(2),
+            74_000,
+            Scale::new(1.0, 100),
+            Some(&crop),
+        );
+        render_scene(
+            &mut renderer,
+            &view,
+            &surfaces_dir.join(format!("{}.png", background_filename(kind))),
+        )?;
+    }
+    Ok(())
+}
+
+fn background_filename(kind: BackgroundKind) -> &'static str {
+    match kind {
+        BackgroundKind::Solid => "solid",
+        BackgroundKind::Transparent => "transparent",
+        BackgroundKind::Acrylic => "acrylic",
+        BackgroundKind::Ice => "ice",
+        BackgroundKind::Liquid => "liquid",
+    }
+}
+
+#[derive(Serialize)]
+struct FontPreviewEntry {
+    family: String,
+    file: String,
+}
+
+pub fn render_font_previews(directory: &Path, text: &str) -> Result<(), String> {
+    std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let paths = Paths::resolve();
+    let user_dir = paths.fonts.clone();
+    let mut library = FontLibrary::new(stock_font_dir(), paths.fonts);
+    let mut renderer = Renderer::new();
+    let line: String = text
+        .trim()
+        .replace(['\r', '\n'], " ")
+        .chars()
+        .take(120)
+        .collect();
+    let line = if line.is_empty() {
+        "The night city grows".to_string()
+    } else {
+        line
+    };
+    let mut manifest = Vec::new();
+    for (index, font) in fonts::catalog(&user_dir).iter().enumerate() {
+        let Some(entry) = library.resolve(&font.family) else {
+            continue;
+        };
+        let Some(png) = renderer.font_sample_png(&entry, &line, 320, 180) else {
+            continue;
+        };
+        let file = format!("font-{index}.png");
+        std::fs::write(directory.join(&file), png).map_err(|error| error.to_string())?;
+        manifest.push(FontPreviewEntry {
+            family: font.family.clone(),
+            file,
+        });
+    }
+    let json = serde_json::to_vec(&manifest).map_err(|error| error.to_string())?;
+    std::fs::write(directory.join("previews.json"), json).map_err(|error| error.to_string())?;
     Ok(())
 }
 

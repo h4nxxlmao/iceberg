@@ -88,15 +88,57 @@ pub fn stock_font_for(family: &str) -> Option<&'static StockFont> {
 }
 
 pub fn stock_font_dir() -> PathBuf {
-    let installed = std::env::current_exe()
+    let legacy = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(|parent| parent.join("fonts")));
-    if let Some(dir) = installed {
+    if let Some(dir) = legacy {
         if dir.join("lato/Lato-Regular.ttf").is_file() {
             return dir;
         }
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets/fonts")
+    crate::paths::assets_dir().join("fonts")
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FontFamilyInfo {
+    pub family: String,
+    pub category: String,
+    pub stock: bool,
+}
+
+pub fn catalog(user_dir: &Path) -> Vec<FontFamilyInfo> {
+    let mut fonts: Vec<FontFamilyInfo> = STOCK_FONTS
+        .iter()
+        .map(|font| FontFamilyInfo {
+            family: font.family.to_string(),
+            category: font.category.to_string(),
+            stock: true,
+        })
+        .collect();
+    for entry in build_user_index(user_dir) {
+        if fonts
+            .iter()
+            .any(|font| font.family.eq_ignore_ascii_case(&entry.0))
+        {
+            continue;
+        }
+        fonts.push(FontFamilyInfo {
+            family: entry.0,
+            category: "Imported".to_string(),
+            stock: false,
+        });
+    }
+    fonts
+}
+
+pub fn font_path(family: &str, user_dir: &Path) -> Option<PathBuf> {
+    if let Some(font) = stock_font_for(family) {
+        return Some(stock_font_dir().join(font.regular));
+    }
+    build_user_index(user_dir)
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(family.trim()))
+        .map(|(_, path)| path)
 }
 
 /// Neutral reference metrics so every imported family renders at a comparable optical size.

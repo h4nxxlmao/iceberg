@@ -6,7 +6,7 @@ use crate::config::{
 
 /// A visual preset is a named background + typography combination. Position and lyric
 /// offset are intentionally not part of a preset.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Preset {
     pub id: String,
     pub name: String,

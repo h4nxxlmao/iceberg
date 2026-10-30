@@ -3,6 +3,23 @@ use std::io::{BufRead, Write};
 
 use crate::config::{Config, WidgetMode};
 use crate::model::{Lyrics, Playback, Track};
+use crate::presets::Preset;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TrackInfo {
+    pub key: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct IpcStatus {
+    pub track: Option<TrackInfo>,
+    pub playback: Playback,
+    pub line: Option<String>,
+    pub line_index: Option<usize>,
+}
 
 /// Line-delimited JSON protocol between the widget (server) and settings (client).
 /// The transport is a per-session named pipe; this module owns the schema and framing.
@@ -22,6 +39,15 @@ pub enum IpcMessage {
         playback: Playback,
         lyrics: Option<Lyrics>,
     },
+    GetConfig,
+    GetStatus,
+    GetPresets,
+    Status {
+        status: IpcStatus,
+    },
+    Presets {
+        presets: Vec<Preset>,
+    },
     ConfigChanged {
         config: Config,
     },
@@ -36,10 +62,55 @@ pub enum IpcMessage {
     },
     ResetOffset,
     OpenSettings,
+    CloseSettings,
+    ShowWidget,
+    FontsChanged,
     Visibility {
         visible: bool,
     },
+    Error {
+        message: String,
+    },
     Quit,
+}
+
+pub fn request(message: &IpcMessage) -> std::io::Result<IpcMessage> {
+    let path = pipe_name();
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    let mut writer = file.try_clone()?;
+    write_message(&mut writer, message)?;
+    let mut reader = std::io::BufReader::new(file);
+    read_message(&mut reader)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "No IPC response"))
+}
+
+pub struct Client {
+    reader: std::io::BufReader<std::fs::File>,
+    writer: std::fs::File,
+}
+
+impl Client {
+    pub fn connect() -> std::io::Result<Self> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(pipe_name())?;
+        let writer = file.try_clone()?;
+        Ok(Self {
+            reader: std::io::BufReader::new(file),
+            writer,
+        })
+    }
+
+    pub fn request(&mut self, message: &IpcMessage) -> std::io::Result<IpcMessage> {
+        write_message(&mut self.writer, message)?;
+        read_message(&mut self.reader)?.ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "No IPC response")
+        })
+    }
 }
 
 pub fn pipe_name() -> String {

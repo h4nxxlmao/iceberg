@@ -428,13 +428,17 @@ impl Renderer {
     }
 
     fn ensure_font(&mut self, view: &View<'_>) {
-        if self.loaded_font == view.font_family {
+        self.install_font(view.font_family, view.font_entry);
+    }
+
+    fn install_font(&mut self, family: &str, entry: Option<&FontEntry>) {
+        if self.loaded_font == family {
             return;
         }
         for id in self.loaded_faces.drain(..) {
             self.font_system.db_mut().remove_face(id);
         }
-        if let Some(entry) = view.font_entry {
+        if let Some(entry) = entry {
             let existing: Vec<_> = self
                 .font_system
                 .db_mut()
@@ -455,9 +459,57 @@ impl Renderer {
                 .filter(|id| !existing.contains(id))
                 .collect();
         }
-        self.loaded_font = view.font_family.to_string();
+        self.loaded_font = family.to_string();
         self.clear_text_cache();
         self.meta_masks = None;
+    }
+
+    /// Renders a paper-and-ink specimen with the same cosmic-text/swash path as the widget.
+    pub fn font_sample_png(
+        &mut self,
+        entry: &FontEntry,
+        text: &str,
+        width: u32,
+        height: u32,
+    ) -> Option<Vec<u8>> {
+        self.install_font(&entry.info.family, Some(entry));
+        let mask = self.rasterize_text(
+            text,
+            &entry.info.family,
+            26.0,
+            500,
+            0.0,
+            Rgba {
+                r: 21,
+                g: 26,
+                b: 24,
+                a: 255,
+            },
+            (width as f32) - 32.0,
+            3,
+        );
+        let mut image = vec![0u8; width as usize * height as usize * 4];
+        for pixel in image.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[243, 241, 234, 255]);
+        }
+        blit_colored_silhouette(
+            &mut image,
+            width as i32,
+            height as i32,
+            &mask,
+            16,
+            18,
+            1.0,
+            false,
+        );
+        let mut output = Vec::new();
+        let mut encoder = png::Encoder::new(&mut output, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(&image).ok()?;
+        writer.finish().ok()?;
+        Some(output)
     }
 
     pub fn clear_text_cache(&mut self) {

@@ -337,13 +337,13 @@ impl Default for Behavior {
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
-            toggle: "Ctrl+Alt+KeyI".to_string(),
-            click_through: "Ctrl+Alt+KeyL".to_string(),
-            offset_up: "Ctrl+Alt+ArrowRight".to_string(),
-            offset_down: "Ctrl+Alt+ArrowLeft".to_string(),
-            mode: "Ctrl+Alt+KeyM".to_string(),
-            peek: "Ctrl+Alt+KeyP".to_string(),
-            settings: "Ctrl+Alt+Comma".to_string(),
+            toggle: "Ctrl+Alt+I".to_string(),
+            click_through: "Ctrl+Alt+L".to_string(),
+            offset_up: "Ctrl+Alt+Right".to_string(),
+            offset_down: "Ctrl+Alt+Left".to_string(),
+            mode: "Ctrl+Alt+M".to_string(),
+            peek: "Ctrl+Alt+P".to_string(),
+            settings: "Ctrl+Alt+,".to_string(),
         }
     }
 }

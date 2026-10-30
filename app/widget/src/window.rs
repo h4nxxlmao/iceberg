@@ -80,6 +80,29 @@ pub fn apply_styles(hwnd: HWND, click_through: bool) -> StyleReport {
     report(hwnd)
 }
 
+pub fn set_click_through(hwnd: HWND, enabled: bool) -> StyleReport {
+    // SAFETY: the handle is a live window owned by this process.
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let ex = if enabled {
+            ex | WS_EX_TRANSPARENT.0
+        } else {
+            ex & !WS_EX_TRANSPARENT.0
+        };
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex as isize);
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+    report(hwnd)
+}
+
 pub fn report(hwnd: HWND) -> StyleReport {
     // SAFETY: reading styles and window state is safe for a live handle.
     unsafe {
@@ -195,6 +218,35 @@ pub fn work_area(hwnd: HWND) -> WorkArea {
             bottom: GetSystemMetrics(SM_CYSCREEN).max(1),
         }
     }
+}
+
+/// Snaps a dragged window to the nearest work-area edge when it is close, and
+/// keeps it from being left completely outside the work area.
+pub fn snap_position(
+    work: WorkArea,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    threshold: i32,
+) -> (i32, i32) {
+    let max_x = (work.right - width).max(work.left);
+    let max_y = (work.bottom - height).max(work.top);
+    let x = if (x - work.left).abs() <= threshold {
+        work.left
+    } else if (work.right - (x + width)).abs() <= threshold {
+        work.right - width
+    } else {
+        x.clamp(work.left, max_x)
+    };
+    let y = if (y - work.top).abs() <= threshold {
+        work.top
+    } else if (work.bottom - (y + height)).abs() <= threshold {
+        work.bottom - height
+    } else {
+        y.clamp(work.top, max_y)
+    };
+    (x, y)
 }
 
 /// Pure positioning so DPI and anchor behavior can be unit tested. `offset_*` and `margin`
@@ -379,6 +431,19 @@ mod tests {
         right: 1920,
         bottom: 1080,
     };
+
+    #[test]
+    fn snap_position_snaps_to_the_near_edge() {
+        assert_eq!(snap_position(WORK, 8, 300, 388, 245, 16), (0, 300));
+        assert_eq!(snap_position(WORK, 1524, 300, 388, 245, 16), (1532, 300));
+        assert_eq!(snap_position(WORK, 300, 827, 388, 245, 16), (300, 835));
+    }
+
+    #[test]
+    fn snap_position_keeps_far_windows_in_the_work_area() {
+        assert_eq!(snap_position(WORK, 700, 300, 388, 245, 16), (700, 300));
+        assert_eq!(snap_position(WORK, -500, -500, 388, 245, 16), (0, 0));
+    }
 
     #[test]
     fn top_center_accounts_for_the_shadow_margin() {

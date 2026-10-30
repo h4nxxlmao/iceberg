@@ -7,6 +7,7 @@
 pub mod cache;
 pub mod config;
 pub mod fonts;
+pub mod hotkeys;
 pub mod ipc;
 pub mod lyrics;
 pub mod media;

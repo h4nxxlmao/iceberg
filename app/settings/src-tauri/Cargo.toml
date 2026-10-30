@@ -1,0 +1,27 @@
+[package]
+name = "iceberg-settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Iceberg settings companion"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+iceberg-core = { path = "../../core" }
+tauri = { version = "2.12.5", default-features = false, features = [
+  "wry",
+  "compression",
+  "common-controls-v6",
+  "image-png",
+] }
+serde.workspace = true
+serde_json.workspace = true
+base64 = "0.22"
+rfd = { version = "0.15.4", default-features = false }
