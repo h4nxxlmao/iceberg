@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod backdrop;
 mod demo;
 mod dpi;
 mod perf;
@@ -12,7 +13,7 @@ mod window;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use iceberg_core::config::WidgetMode;
+use iceberg_core::config::{BackgroundKind, WidgetMode};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -38,6 +39,7 @@ Usage: iceberg [options]
 
   --demo                 show the built-in demo track instead of Windows media
   --mode=card|lyrics|island
+  --background=solid|transparent|acrylic|ice|liquid
   --scale=100|150|200    override the monitor scale for layout testing
   --click-through        start with mouse input passing through the widget
   --screenshot=DIR       render review screenshots and exit
@@ -52,7 +54,7 @@ fn parse_args(args: &[String]) -> Result<app::Options, String> {
         match arg.as_str() {
             "--demo" => options.demo = true,
             "--click-through" => options.click_through = Some(true),
-            "--screenshot" => options.screenshot = Some(PathBuf::from("docs/phase-b")),
+            "--screenshot" => options.screenshot = Some(PathBuf::from("docs/phase-c")),
             "--bench" => options.bench = Some(PathBuf::from("bench.json")),
             "-h" | "--help" => {
                 println!("{USAGE}");
@@ -65,6 +67,15 @@ fn parse_args(args: &[String]) -> Result<app::Options, String> {
                         "lyrics" => WidgetMode::Lyrics,
                         "island" => WidgetMode::Island,
                         other => return Err(format!("unknown mode '{other}'")),
+                    });
+                } else if let Some(value) = arg.strip_prefix("--background=") {
+                    options.background = Some(match value {
+                        "solid" => BackgroundKind::Solid,
+                        "transparent" => BackgroundKind::Transparent,
+                        "acrylic" => BackgroundKind::Acrylic,
+                        "ice" => BackgroundKind::Ice,
+                        "liquid" => BackgroundKind::Liquid,
+                        other => return Err(format!("unknown background '{other}'")),
                     });
                 } else if let Some(value) = arg.strip_prefix("--scale=") {
                     let parsed: f64 = value

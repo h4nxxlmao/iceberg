@@ -2,11 +2,14 @@ use cosmic_text::{
     Attrs, Buffer, Color, Family, FontSystem, Metrics as TextMetrics, Shaping, SwashCache, Weight,
     Wrap,
 };
-use iceberg_core::config::{Align, BackgroundKind, Config, TextCase, TransitionStyle, WidgetMode};
+use iceberg_core::config::{
+    Align, Background, BackgroundKind, Config, TextCase, TransitionStyle, WidgetMode,
+};
 use iceberg_core::fonts::{FontEntry, FontMetrics};
 use iceberg_core::model::{Lyrics, Playback, Track};
 use std::collections::HashMap;
 
+use crate::backdrop::BackdropCrop;
 use crate::dpi::Scale;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -326,6 +329,7 @@ pub struct View<'a> {
     pub font_family: &'a str,
     pub font_metrics: FontMetrics,
     pub font_entry: Option<&'a FontEntry>,
+    pub backdrop: Option<&'a BackdropCrop>,
 }
 
 impl<'a> View<'a> {
@@ -364,6 +368,12 @@ struct TextMask {
     pixels: Vec<u8>,
 }
 
+struct MetaMasks {
+    key: String,
+    title: TextMask,
+    artist: TextMask,
+}
+
 pub struct Renderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -376,7 +386,9 @@ pub struct Renderer {
     line_masks: HashMap<usize, TextMask>,
     plain_masks: HashMap<usize, TextMask>,
     state_masks: HashMap<String, TextMask>,
+    meta_masks: Option<MetaMasks>,
     pub background_rebuilds: u64,
+    pub last_backdrop_ms: f64,
 }
 
 impl Renderer {
@@ -393,7 +405,9 @@ impl Renderer {
             line_masks: HashMap::new(),
             plain_masks: HashMap::new(),
             state_masks: HashMap::new(),
+            meta_masks: None,
             background_rebuilds: 0,
+            last_backdrop_ms: 0.0,
         }
     }
 
@@ -409,6 +423,7 @@ impl Renderer {
         self.text = vec![0u8; bytes];
         self.frame = vec![0u8; bytes];
         self.clear_text_cache();
+        self.meta_masks = None;
         true
     }
 
@@ -442,6 +457,7 @@ impl Renderer {
         }
         self.loaded_font = view.font_family.to_string();
         self.clear_text_cache();
+        self.meta_masks = None;
     }
 
     pub fn clear_text_cache(&mut self) {
@@ -461,23 +477,26 @@ impl Renderer {
         };
         self.background.fill(0);
         self.background_rebuilds = self.background_rebuilds.saturating_add(1);
+        self.last_backdrop_ms = 0.0;
 
         let active = view.active_color();
         if view.config.background.shadow {
             draw_shadow(&mut self.background, &metrics, view.config);
         }
-        let fill = background_fill(view.config);
-        fill_rounded_rect(
-            &mut self.background,
-            metrics.window_w,
-            metrics.window_h,
-            metrics.card_x,
-            metrics.card_y,
-            metrics.card_w,
-            metrics.card_h,
-            metrics.radius,
-            fill,
-        );
+        match view.config.background.kind {
+            BackgroundKind::Solid | BackgroundKind::Transparent => {
+                paint_flat_card(&mut self.background, &metrics, view.config);
+            }
+            BackgroundKind::Acrylic | BackgroundKind::Ice | BackgroundKind::Liquid => {
+                if let Some(crop) = view.backdrop {
+                    let started = std::time::Instant::now();
+                    paint_backdrop(&mut self.background, &metrics, view.config, crop);
+                    self.last_backdrop_ms = started.elapsed().as_secs_f64() * 1000.0;
+                } else {
+                    paint_flat_card(&mut self.background, &metrics, view.config);
+                }
+            }
+        }
         if metrics.border > 0.0 && view.config.background.border_opacity > 0.0 {
             let border = Rgba::from_hex(
                 &view.config.background.border_color,
@@ -514,16 +533,41 @@ impl Renderer {
             let title_offset = metrics.baseline_offset * 13.5 / view.config.typography.font_size;
             let artist_offset = metrics.baseline_offset * 11.5 / view.config.typography.font_size;
             let family = view.font_family;
-            let title_mask = self.rasterize_text(
-                title,
-                family,
-                title_size,
-                600,
-                0.0,
-                active,
-                metrics.meta_w as f32,
-                1,
+            let key = format!(
+                "{title}\u{1f}{artist}\u{1f}{title_size:.3}\u{1f}{artist_size:.3}\u{1f}{family}\u{1f}{active:?}\u{1f}{:.2}\u{1f}{:.3}",
+                metrics.meta_w, metrics.scale
             );
+            let (title_mask, artist_mask) =
+                if let Some(cache) = self.meta_masks.as_ref().filter(|cache| cache.key == key) {
+                    (cache.title.clone(), cache.artist.clone())
+                } else {
+                    let title_mask = self.rasterize_text(
+                        title,
+                        family,
+                        title_size,
+                        600,
+                        0.0,
+                        active,
+                        metrics.meta_w as f32,
+                        1,
+                    );
+                    let artist_mask = self.rasterize_text(
+                        artist,
+                        family,
+                        artist_size,
+                        400,
+                        0.0,
+                        active.with_alpha(0.54),
+                        metrics.meta_w as f32,
+                        1,
+                    );
+                    self.meta_masks = Some(MetaMasks {
+                        key,
+                        title: title_mask.clone(),
+                        artist: artist_mask.clone(),
+                    });
+                    (title_mask, artist_mask)
+                };
             let title_x = aligned_x(
                 view.config.typography.align,
                 metrics.meta_x,
@@ -542,16 +586,6 @@ impl Renderer {
                 false,
                 false,
                 view.synthetic_bold(600),
-            );
-            let artist_mask = self.rasterize_text(
-                artist,
-                family,
-                artist_size,
-                400,
-                0.0,
-                active.with_alpha(0.54),
-                metrics.meta_w as f32,
-                1,
             );
             let artist_x = aligned_x(
                 view.config.typography.align,
@@ -1225,6 +1259,432 @@ pub fn visible_range(count: usize, center: f32, lines: usize) -> std::ops::Range
     start as usize..=end as usize
 }
 
+fn paint_flat_card(target: &mut [u8], metrics: &Metrics, config: &Config) {
+    fill_rounded_rect(
+        target,
+        metrics.window_w,
+        metrics.window_h,
+        metrics.card_x,
+        metrics.card_y,
+        metrics.card_w,
+        metrics.card_h,
+        metrics.radius,
+        background_fill(config),
+    );
+}
+
+fn paint_backdrop(target: &mut [u8], metrics: &Metrics, config: &Config, crop: &BackdropCrop) {
+    let width = metrics.window_w.max(1) as usize;
+    let height = metrics.window_h.max(1) as usize;
+    if crop.width != width || crop.height != height || crop.rgba.len() != width * height * 4 {
+        paint_flat_card(target, metrics, config);
+        return;
+    }
+    let factor = (400.0 / width.max(height) as f64).min(1.0);
+    let sample_width = ((width as f64 * factor).round() as usize).max(1);
+    let sample_height = ((height as f64 * factor).round() as usize).max(1);
+    let mut scaled = metrics.clone();
+    scaled.scale = metrics.scale * factor;
+    scaled.window_w = sample_width as i32;
+    scaled.window_h = sample_height as i32;
+    scaled.card_x = metrics.card_x * factor;
+    scaled.card_y = metrics.card_y * factor;
+    scaled.card_w = metrics.card_w * factor;
+    scaled.card_h = metrics.card_h * factor;
+    scaled.radius = metrics.radius * factor;
+    let source = if sample_width == width && sample_height == height {
+        crop.rgba.clone()
+    } else {
+        resize_rgba(&crop.rgba, width, height, sample_width, sample_height)
+    };
+    let background = &config.background;
+    let scale = scaled.scale as f32;
+    let radius = match background.kind {
+        BackgroundKind::Acrylic => (22.0 * scale).round(),
+        BackgroundKind::Ice => ((20.0 - 8.0 * background.ice_clarity as f32
+            + 16.0 * background.ice_frost as f32)
+            * scale)
+            .round(),
+        BackgroundKind::Liquid => (background.liquid_blur as f32 * scale).round(),
+        BackgroundKind::Solid | BackgroundKind::Transparent => 0.0,
+    } as usize;
+    let blurred = blur_rgba(&source, sample_width, sample_height, radius.min(96));
+    let image = match background.kind {
+        BackgroundKind::Acrylic => acrylic_layer(&blurred, sample_width, sample_height, background),
+        BackgroundKind::Ice => {
+            ice_layer(&blurred, &source, sample_width, sample_height, background)
+        }
+        BackgroundKind::Liquid => {
+            liquid_layer(&blurred, sample_width, sample_height, &scaled, background)
+        }
+        BackgroundKind::Solid | BackgroundKind::Transparent => blurred,
+    };
+    fill_rounded_image(target, metrics, &image, sample_width, sample_height);
+}
+
+fn acrylic_layer(image: &[u8], width: usize, height: usize, background: &Background) -> Vec<u8> {
+    let tint = Rgba::from_hex(&background.acrylic_tint, 1.0);
+    let strength = background.acrylic_tint_strength as f32;
+    let noise = background.acrylic_noise as f32 * 36.0;
+    let mut output = image.to_vec();
+    for y in 0..height {
+        for x in 0..width {
+            let index = (y * width + x) * 4;
+            let grain = (hash_noise(x as u32, y as u32, 0x9e37) - 0.5) * noise;
+            for (channel, tint_value) in [(0, tint.r), (1, tint.g), (2, tint.b)] {
+                let value = output[index + channel] as f32;
+                output[index + channel] = (value + (tint_value as f32 - value) * strength + grain)
+                    .clamp(0.0, 255.0)
+                    .round() as u8;
+            }
+        }
+    }
+    output
+}
+
+fn ice_layer(
+    image: &[u8],
+    original: &[u8],
+    width: usize,
+    height: usize,
+    background: &Background,
+) -> Vec<u8> {
+    let tint = Rgba::from_hex(&background.ice_tint, 1.0);
+    let frost = background.ice_frost as f32;
+    let clarity = background.ice_clarity as f32;
+    let tint_amount = (0.22 + 0.55 * frost).clamp(0.0, 0.9);
+    let saturation = (1.0 - 0.35 * frost).clamp(0.0, 1.0);
+    let clarity_amount = (clarity * 0.18).clamp(0.0, 0.2);
+    let grain_amount = frost * 7.0;
+    let mut output = image.to_vec();
+    for y in 0..height {
+        for x in 0..width {
+            let index = (y * width + x) * 4;
+            let grain = (hash_noise(x as u32, y as u32, 0x51ed) - 0.5) * grain_amount;
+            let mut rgb = [0.0f32; 3];
+            for channel in 0..3 {
+                let blurred = image[index + channel] as f32;
+                let detail = original[index + channel] as f32;
+                rgb[channel] = blurred + (detail - blurred) * clarity_amount;
+            }
+            let luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+            let tint_values = [tint.r as f32, tint.g as f32, tint.b as f32];
+            for channel in 0..3 {
+                let desaturated = luminance + (rgb[channel] - luminance) * saturation;
+                output[index + channel] =
+                    (desaturated + (tint_values[channel] - desaturated) * tint_amount + grain)
+                        .clamp(0.0, 255.0)
+                        .round() as u8;
+            }
+        }
+    }
+    output
+}
+
+fn liquid_layer(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    metrics: &Metrics,
+    background: &Background,
+) -> Vec<u8> {
+    let tint = Rgba::from_hex(&background.solid_color, 1.0);
+    let tint_amount = 0.34;
+    let mut dyed = image.to_vec();
+    for pixel in dyed.chunks_exact_mut(4) {
+        for (channel, tint_value) in [(0, tint.r), (1, tint.g), (2, tint.b)] {
+            let value = pixel[channel] as f32;
+            pixel[channel] = (value + (tint_value as f32 - value) * tint_amount)
+                .clamp(0.0, 255.0)
+                .round() as u8;
+        }
+    }
+    refract_liquid(&dyed, width, height, metrics, background)
+}
+
+fn refract_liquid(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    metrics: &Metrics,
+    background: &Background,
+) -> Vec<u8> {
+    let bevel = (background.liquid_bevel * metrics.scale).clamp(1.0, 64.0);
+    let refraction = background.liquid_refraction.clamp(0.0, 1.0);
+    let highlight = background.liquid_highlight.clamp(0.0, 1.0);
+    let chromatic = background.liquid_chromatic;
+    let center_x = metrics.card_x + metrics.card_w / 2.0;
+    let center_y = metrics.card_y + metrics.card_h / 2.0;
+    let half_w = (metrics.card_w / 2.0).max(1.0);
+    let half_h = (metrics.card_h / 2.0).max(1.0);
+    let mut output = image.to_vec();
+    for y in 0..height {
+        for x in 0..width {
+            let px = x as f64 + 0.5;
+            let py = y as f64 + 0.5;
+            let distance = rounded_rect_distance(
+                px,
+                py,
+                metrics.card_x,
+                metrics.card_y,
+                metrics.card_w,
+                metrics.card_h,
+                metrics.radius,
+            );
+            if distance > 1.5 {
+                continue;
+            }
+            let edge = (-distance / bevel).clamp(0.0, 1.0);
+            let falloff = (1.0 - edge) * (1.0 - edge);
+            let nx = (px - center_x) / half_w;
+            let ny = (py - center_y) / half_h;
+            let length = (nx * nx + ny * ny).sqrt().max(0.0001);
+            let nx = nx / length;
+            let ny = ny / length;
+            let offset = falloff * bevel * 0.55 * refraction;
+            let sx = px + nx * offset;
+            let sy = py + ny * offset;
+            let mut pixel = sample_rgba(image, width, height, sx, sy);
+            if chromatic {
+                let fringe = (falloff * refraction * 3.0).max(0.8);
+                let red = sample_rgba(image, width, height, sx + nx * fringe, sy + ny * fringe);
+                let blue = sample_rgba(image, width, height, sx - nx * fringe, sy - ny * fringe);
+                pixel[0] = red[0];
+                pixel[2] = blue[2];
+            }
+            let y_norm = ((py - metrics.card_y) / metrics.card_h).clamp(0.0, 1.0);
+            let x_norm = ((px - metrics.card_x) / metrics.card_w).clamp(0.0, 1.0);
+            let sheen = (1.0 - y_norm).powi(2) * (0.35 + 0.65 * (1.0 - x_norm)) * highlight * 0.45;
+            let rim = falloff * highlight * 0.18;
+            let add = ((sheen + rim) * 255.0) as f32;
+            let index = (y * width + x) * 4;
+            output[index] = (pixel[0] as f32 + add).clamp(0.0, 255.0).round() as u8;
+            output[index + 1] = (pixel[1] as f32 + add).clamp(0.0, 255.0).round() as u8;
+            output[index + 2] = (pixel[2] as f32 + add).clamp(0.0, 255.0).round() as u8;
+            output[index + 3] = pixel[3];
+        }
+    }
+    output
+}
+
+fn fill_rounded_image(
+    target: &mut [u8],
+    metrics: &Metrics,
+    image: &[u8],
+    image_w: usize,
+    image_h: usize,
+) {
+    let left = metrics.card_x.floor() as i32;
+    let top = metrics.card_y.floor() as i32;
+    let right = (metrics.card_x + metrics.card_w).ceil() as i32;
+    let bottom = (metrics.card_y + metrics.card_h).ceil() as i32;
+    for py in top..bottom {
+        if py < 0 || py >= metrics.window_h {
+            continue;
+        }
+        for px in left..right {
+            if px < 0 || px >= metrics.window_w {
+                continue;
+            }
+            let distance = rounded_rect_distance(
+                px as f64 + 0.5,
+                py as f64 + 0.5,
+                metrics.card_x,
+                metrics.card_y,
+                metrics.card_w,
+                metrics.card_h,
+                metrics.radius,
+            );
+            let coverage = (1.0 - distance).clamp(0.0, 1.0);
+            if coverage <= 0.0 {
+                continue;
+            }
+            let same_size =
+                image_w == metrics.window_w as usize && image_h == metrics.window_h as usize;
+            let (source_r, source_g, source_b, source_a) = if same_size {
+                let source = (py as usize * image_w + px as usize) * 4;
+                (
+                    image[source],
+                    image[source + 1],
+                    image[source + 2],
+                    image[source + 3],
+                )
+            } else {
+                let source_x = (px as f64 + 0.5) * image_w as f64 / metrics.window_w as f64 - 0.5;
+                let source_y = (py as f64 + 0.5) * image_h as f64 / metrics.window_h as f64 - 0.5;
+                let pixel = sample_rgba(image, image_w, image_h, source_x, source_y);
+                (pixel[0], pixel[1], pixel[2], pixel[3])
+            };
+            let alpha = (source_a as f64 * coverage) as u32;
+            if alpha == 0 {
+                continue;
+            }
+            let inverse = 255 - alpha;
+            let index = ((py * metrics.window_w + px) * 4) as usize;
+            let source_b = source_b as u32 * alpha / 255;
+            let source_g = source_g as u32 * alpha / 255;
+            let source_r = source_r as u32 * alpha / 255;
+            target[index] = (source_b + target[index] as u32 * inverse / 255).min(255) as u8;
+            target[index + 1] =
+                (source_g + target[index + 1] as u32 * inverse / 255).min(255) as u8;
+            target[index + 2] =
+                (source_r + target[index + 2] as u32 * inverse / 255).min(255) as u8;
+            target[index + 3] = (alpha + target[index + 3] as u32 * inverse / 255).min(255) as u8;
+        }
+    }
+}
+
+fn resize_rgba(
+    input: &[u8],
+    source_w: usize,
+    source_h: usize,
+    target_w: usize,
+    target_h: usize,
+) -> Vec<u8> {
+    let mut output = vec![0u8; target_w * target_h * 4];
+    for y in 0..target_h {
+        for x in 0..target_w {
+            let source_x = (x as f64 + 0.5) * source_w as f64 / target_w as f64 - 0.5;
+            let source_y = (y as f64 + 0.5) * source_h as f64 / target_h as f64 - 0.5;
+            let pixel = sample_rgba(input, source_w, source_h, source_x, source_y);
+            let index = (y * target_w + x) * 4;
+            output[index..index + 4].copy_from_slice(&pixel);
+        }
+    }
+    output
+}
+
+fn rounded_rect_distance(
+    x: f64,
+    y: f64,
+    x0: f64,
+    y0: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
+) -> f64 {
+    let center_x = x0 + width / 2.0;
+    let center_y = y0 + height / 2.0;
+    let half_x = width / 2.0 - radius.max(0.0);
+    let half_y = height / 2.0 - radius.max(0.0);
+    let dx = (x - center_x).abs() - half_x;
+    let dy = (y - center_y).abs() - half_y;
+    (dx.max(0.0).powi(2) + dy.max(0.0).powi(2)).sqrt() + dx.max(dy).min(0.0) - radius.max(0.0)
+}
+
+fn blur_rgba(input: &[u8], width: usize, height: usize, radius: usize) -> Vec<u8> {
+    if radius == 0 || width < 2 || height < 2 {
+        return input.to_vec();
+    }
+    let radius = radius.min(96);
+    let mut current = input.to_vec();
+    let mut scratch = vec![0u8; input.len()];
+    for _ in 0..2 {
+        box_blur_horizontal(&current, &mut scratch, width, height, radius);
+        box_blur_vertical(&scratch, &mut current, width, height, radius);
+    }
+    current
+}
+
+fn box_blur_horizontal(
+    source: &[u8],
+    target: &mut [u8],
+    width: usize,
+    height: usize,
+    radius: usize,
+) {
+    let radius_i = radius as isize;
+    let count = (radius * 2 + 1) as u32;
+    for y in 0..height {
+        let row = y * width * 4;
+        let mut sums = [0u32; 4];
+        for delta in -radius_i..=radius_i {
+            let x = delta.clamp(0, width as isize - 1) as usize;
+            let index = row + x * 4;
+            for channel in 0..4 {
+                sums[channel] += source[index + channel] as u32;
+            }
+        }
+        for x in 0..width {
+            let index = row + x * 4;
+            for channel in 0..4 {
+                target[index + channel] = (sums[channel] / count) as u8;
+            }
+            let add = (x as isize + radius_i + 1).clamp(0, width as isize - 1) as usize;
+            let remove = (x as isize - radius_i).clamp(0, width as isize - 1) as usize;
+            let add_index = row + add * 4;
+            let remove_index = row + remove * 4;
+            for channel in 0..4 {
+                sums[channel] = sums[channel] + source[add_index + channel] as u32
+                    - source[remove_index + channel] as u32;
+            }
+        }
+    }
+}
+
+fn box_blur_vertical(source: &[u8], target: &mut [u8], width: usize, height: usize, radius: usize) {
+    let radius_i = radius as isize;
+    let count = (radius * 2 + 1) as u32;
+    for x in 0..width {
+        let column = x * 4;
+        let mut sums = [0u32; 4];
+        for delta in -radius_i..=radius_i {
+            let y = delta.clamp(0, height as isize - 1) as usize;
+            let index = y * width * 4 + column;
+            for channel in 0..4 {
+                sums[channel] += source[index + channel] as u32;
+            }
+        }
+        for y in 0..height {
+            let index = y * width * 4 + column;
+            for channel in 0..4 {
+                target[index + channel] = (sums[channel] / count) as u8;
+            }
+            let add = (y as isize + radius_i + 1).clamp(0, height as isize - 1) as usize;
+            let remove = (y as isize - radius_i).clamp(0, height as isize - 1) as usize;
+            let add_index = add * width * 4 + column;
+            let remove_index = remove * width * 4 + column;
+            for channel in 0..4 {
+                sums[channel] = sums[channel] + source[add_index + channel] as u32
+                    - source[remove_index + channel] as u32;
+            }
+        }
+    }
+}
+
+fn sample_rgba(image: &[u8], width: usize, height: usize, x: f64, y: f64) -> [u8; 4] {
+    let x = x.clamp(0.0, width.saturating_sub(1) as f64);
+    let y = y.clamp(0.0, height.saturating_sub(1) as f64);
+    let x0 = x.floor() as usize;
+    let y0 = y.floor() as usize;
+    let x1 = (x0 + 1).min(width.saturating_sub(1));
+    let y1 = (y0 + 1).min(height.saturating_sub(1));
+    let tx = x - x0 as f64;
+    let ty = y - y0 as f64;
+    let mut pixel = [0u8; 4];
+    for (channel, value) in pixel.iter_mut().enumerate() {
+        let top = image[(y0 * width + x0) * 4 + channel] as f64 * (1.0 - tx)
+            + image[(y0 * width + x1) * 4 + channel] as f64 * tx;
+        let bottom = image[(y1 * width + x0) * 4 + channel] as f64 * (1.0 - tx)
+            + image[(y1 * width + x1) * 4 + channel] as f64 * tx;
+        *value = (top * (1.0 - ty) + bottom * ty).round().clamp(0.0, 255.0) as u8;
+    }
+    pixel
+}
+
+fn hash_noise(x: u32, y: u32, seed: u32) -> f32 {
+    let mut value = x
+        .wrapping_mul(0x9e37_79b1)
+        .wrapping_add(y.wrapping_mul(0x85eb_ca77))
+        .wrapping_add(seed);
+    value ^= value >> 16;
+    value = value.wrapping_mul(0x7feb_352d);
+    value ^= value >> 15;
+    value = value.wrapping_mul(0x846c_a68b);
+    value ^= value >> 16;
+    (value & 0xffff) as f32 / 65_535.0
+}
+
 fn background_fill(config: &Config) -> Rgba {
     let background = &config.background;
     match background.kind {
@@ -1232,8 +1692,7 @@ fn background_fill(config: &Config) -> Rgba {
         BackgroundKind::Transparent => {
             Rgba::from_hex(&background.solid_color, background.transparent_opacity)
         }
-        // Phase A keeps the accepted CPU backdrop pipeline as a flat tint placeholder. Phase C
-        // replaces these with the wallpaper blur / frost / refraction pipeline.
+        // Fallback tint for a textured surface when no wallpaper crop is available.
         BackgroundKind::Acrylic => Rgba::from_hex(
             &background.acrylic_tint,
             0.55 + background.acrylic_tint_strength * 0.35,
@@ -1766,6 +2225,7 @@ mod tests {
                 font_family: &family_name,
                 font_metrics: entry.metrics,
                 font_entry: Some(&entry),
+                backdrop: None,
             };
             renderer.ensure_size(&view);
             assert!(
@@ -1788,6 +2248,91 @@ mod tests {
             widths.windows(2).any(|pair| pair[0] != pair[1]),
             "stock fonts rendered identical widths: {widths:?}"
         );
+    }
+
+    #[test]
+    fn blur_softens_a_hard_edge() {
+        let width = 9;
+        let height = 9;
+        let mut image = vec![0u8; width * height * 4];
+        for pixel in image.chunks_exact_mut(4) {
+            pixel[3] = 255;
+        }
+        let center = (4 * width + 4) * 4;
+        image[center..center + 3].copy_from_slice(&[255, 255, 255]);
+        let blurred = blur_rgba(&image, width, height, 2);
+        assert!(blurred[center] < 255);
+        let neighbor = (4 * width + 3) * 4;
+        assert!(blurred[neighbor] > 0);
+    }
+
+    #[test]
+    fn rounded_image_fill_clips_the_corners() {
+        let config = config();
+        let metrics = compute_metrics(
+            &config,
+            WidgetMode::Card,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
+        let width = metrics.window_w as usize;
+        let height = metrics.window_h as usize;
+        let image = vec![255u8; width * height * 4];
+        let mut target = vec![0u8; width * height * 4];
+        fill_rounded_image(&mut target, &metrics, &image, width, height);
+        assert_eq!(target[3], 0);
+        let center = ((height / 2) * width + width / 2) * 4;
+        assert_eq!(target[center + 3], 255);
+    }
+
+    #[test]
+    fn textured_pipeline_paints_an_opaque_card() {
+        let mut config = config();
+        config.background.kind = BackgroundKind::Acrylic;
+        let metrics = compute_metrics(
+            &config,
+            WidgetMode::Card,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
+        let width = metrics.window_w as usize;
+        let height = metrics.window_h as usize;
+        let mut rgba = vec![0u8; width * height * 4];
+        for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+            let x = index % width;
+            let y = index / width;
+            pixel[0] = (x % 255) as u8;
+            pixel[1] = (y % 255) as u8;
+            pixel[2] = ((x + y) % 255) as u8;
+            pixel[3] = 255;
+        }
+        let crop = BackdropCrop {
+            width,
+            height,
+            rgba,
+        };
+        let mut target = vec![0u8; width * height * 4];
+        paint_backdrop(&mut target, &metrics, &config, &crop);
+        let center = ((height / 2) * width + width / 2) * 4;
+        assert_eq!(target[center + 3], 255);
+        assert_eq!(target[3], 0);
+    }
+
+    #[test]
+    fn liquid_refraction_keeps_the_image_size() {
+        let mut config = config();
+        config.background.kind = BackgroundKind::Liquid;
+        let metrics = compute_metrics(
+            &config,
+            WidgetMode::Card,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
+        let width = metrics.window_w as usize;
+        let height = metrics.window_h as usize;
+        let image = vec![120u8; width * height * 4];
+        let output = refract_liquid(&image, width, height, &metrics, &config.background);
+        assert_eq!(output.len(), image.len());
     }
 
     #[test]
@@ -1877,6 +2422,7 @@ mod tests {
             font_family: "Segoe UI",
             font_metrics: FontMetrics::default(),
             font_entry: None,
+            backdrop: None,
         };
         let mut renderer = Renderer::new();
         assert!(renderer.ensure_size(&view));
@@ -1943,6 +2489,7 @@ mod tests {
             font_family: "Segoe UI",
             font_metrics: FontMetrics::default(),
             font_entry: None,
+            backdrop: None,
         };
         renderer.ensure_size(&view);
         renderer.rebuild_background(&view);

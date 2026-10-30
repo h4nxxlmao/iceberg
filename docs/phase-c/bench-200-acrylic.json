@@ -1,0 +1,43 @@
+{
+  "renderer": "winit + UpdateLayeredWindow + cosmic-text/swash",
+  "os_scale": 2.0,
+  "effective_scale": 2.0,
+  "surface": [
+    776,
+    490
+  ],
+  "dpi_awareness": "per_monitor_v2",
+  "style": {
+    "style": 2516582400,
+    "ex_style": 134742168,
+    "borderless": true,
+    "tool_window": true,
+    "no_activate": true,
+    "topmost": true,
+    "layered": true,
+    "app_window": false,
+    "click_through": false,
+    "visible": true,
+    "foreground": false
+  },
+  "background": "acrylic",
+  "backdrop": "wallpaper",
+  "background_build_ms": 153.9875,
+  "first_background_ms": 154.91389999999998,
+  "backdrop_pipeline_ms": 53.441900000000004,
+  "transitions": 12,
+  "transition_seconds": 2.9,
+  "transition_cpu_one_core": 20.474137931034484,
+  "transition_cpu_total": 1.2796336206896552,
+  "idle_seconds": 2.0,
+  "idle_cpu_one_core": 0.0,
+  "idle_cpu_total": 0.0,
+  "background_rebuilds_before": 2,
+  "background_rebuilds_during_transitions": 0,
+  "background_rebuilds_total": 2,
+  "memory": {
+    "working_set": 30261248,
+    "private_bytes": 14483456
+  },
+  "note": "Transition window includes 12 line changes at 240 ms spacing with 200 ms cached-text transitions."
+}

@@ -14,12 +14,18 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Config v2 migration from the previous system-font defaults to the stock set.
 - Fade transitions that hold the target line grid, alongside slide and off.
 - Phase B typography previews and release measurements in [docs/phase-b/RESULTS.md](docs/phase-b/RESULTS.md).
+- CPU wallpaper surfaces: Solid, Transparent, Acrylic, Ice, and Liquid glass. The textured surfaces share a crop, blur, tint/frost/noise, refraction/highlight, and rounded-shape pipeline. No DWM acrylic.
+- Native WIC wallpaper capture with a 960 px proxy and cover crop, cached title/artist masks, a 120 ms move settle, and a 400 px textured-processing cap.
+- Phase C review screenshots and measurements in [docs/phase-c/RESULTS.md](docs/phase-c/RESULTS.md).
+- A `--background=solid|transparent|acrylic|ice|liquid` diagnostic override.
 
 ### Changed
 
 - The default widget font is now Lato instead of Segoe UI Variable Display. Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
 - The Paper preset uses Abril Fatface and Quiet uses Space Mono.
+- The Frost preset uses ink text on the light ice surface for contrast.
 - Text masks are composited with their premultiplied alpha, fixing thin antialiased edges.
+- Textured windows load the wallpaper only while a textured surface is active and drop the proxy with the window.
 
 ### Fixed
 
@@ -28,6 +34,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 ### Performance
 
 - Phase B release measurements (median of three) at 100/150/200%: 5.39/8.08/12.93% of one core during 12 cached-text transitions (0.34/0.51/0.81% of total CPU), 20.6/23.2/26.8 MB working set, 6.9/9.1/12.0 MB private. Idle CPU is 0% at 100/150%; two 200% samples read 0.78% of one core. Release executable 3.20 MiB plus 2.85 MiB of font assets; background rebuilds during transitions remain 0.
+- Phase C wallpaper surfaces (median of three, 100%/200%): transition total 0.51–1.52%, idle 0%, 20.6–30.3 MB working set, 6.9–15.1 MB private. Warm background rebuild: 7.3 ms Solid, 37.7–54.4 ms textured at 100%, 113.9–207.5 ms at 200%; the 200% Liquid path is the most expensive opt-in surface. Backdrop rebuilds during transitions remain 0. Release executable 3.23 MiB; raw widget assets with fonts 6.09 MiB; installer not built yet.
 
 ### Changed (previous Tauri prototype)
 

@@ -14,12 +14,13 @@ cargo test --workspace
 cargo build --release -p iceberg-widget
 ```
 
-Run the widget with the demo track, render review screenshots, or run the transition benchmark:
+Run the widget with the demo track, render review screenshots, or run the warm benchmark:
 
 ```powershell
 cargo run -p iceberg-widget -- --demo
-cargo run -p iceberg-widget -- --screenshot=../docs/phase-b
-cargo run -p iceberg-widget -- --bench=../docs/phase-b/bench-100.json --scale=100
+cargo run -p iceberg-widget -- --demo --background=liquid
+cargo run -p iceberg-widget -- --screenshot=../docs/phase-c
+cargo run -p iceberg-widget -- --bench=../docs/phase-c/bench-100-acrylic.json --background=acrylic --scale=100
 ```
 
 The Tauri/WebView2 prototype in `app/src-tauri` is kept for reference until the settings app replaces it and is excluded from the workspace. Do not add new features to the prototype.
@@ -37,9 +38,21 @@ The stock families and their OFL licenses live in `app/assets/fonts`. New stock 
 - an OFL-compatible license file next to the font;
 - a build with Regular and, where available, Bold;
 - an entry in `STOCK_FONTS` in `app/core/src/fonts.rs`;
-- a 100% preview in `docs/phase-b` when typography changes.
+- a 100% preview in `docs/phase-c` when typography changes.
 
 Do not commit user-imported font files, font collections, or fonts with a copyleft license. Validate every font at the boundary; the core rejects empty, oversized, and unreadable files.
+
+## Backgrounds
+
+The widget has five surfaces: Solid, Transparent, Acrylic, Ice, and Liquid. The three textured surfaces share the CPU pipeline in `app/widget/src/render.rs`; `app/widget/src/backdrop.rs` reads and crops the Windows wallpaper through WIC.
+
+- No DWM acrylic, `SetWindowCompositionAttribute`, or `DwmEnableBlurBehindWindow`. The accepted architecture is wallpaper capture, blur, tint, noise, and optional refraction on the CPU.
+- Live desktop capture is out of v1. A `live` backdrop source falls back to the wallpaper.
+- Only the current wallpaper proxy is kept; it is dropped with the window. Textured processing is capped at 400 px and sampled up into the card.
+- The backdrop rebuilds after the 120 ms move settle, on resize, and on monitor change. Title/artist masks are cached separately from the shaped lyric lines.
+- Report the warm background rebuild and the backdrop-pipeline subset when changing windows, blur, tint, or refraction. The 200% Liquid rebuild is the most expensive opt-in path.
+
+If a surface cannot meet the performance budget, make it opt-in or cut it.
 
 ## Performance budget
 
@@ -54,13 +67,14 @@ These are hard targets for the native widget. Measure before and after changing 
 | Installer | under 8 MB |
 | Executable | under 5 MB |
 
-CPU is measured for the whole process tree. Report the surface size, scale, working set, private bytes, and transition/idle CPU. Use the bundled benchmark and the same 12 x 200 ms transitions when comparing changes. The widget must not create a continuous render loop; text transitions redraw only the text layer, and the static background layer rebuilds only on a real layout, art, or wallpaper change.
+CPU is measured for the whole process tree. Report the surface size, scale, working set, private bytes, and transition/idle CPU. Use the bundled benchmark and the same 12 x 200 ms transitions when comparing changes. The widget must not create a continuous render loop; text transitions redraw only the text layer, and the static background layer rebuilds only on a real layout, art, wallpaper, or monitor change. The benchmark reports the warm background rebuild and the backdrop-pipeline subset separately. Background rebuild is a one-time move cost, not idle work; the 100% Solid rebuild is currently 7.3 ms and the 200% Liquid rebuild is 207.5 ms.
 
 Do not add:
 
 - Polling loops or per-frame timers when idle, paused, or hidden
 - Continuous animation loops
 - WebView2, remote content, UI kits, icon packs, or web fonts to the widget
+- DWM acrylic or live desktop capture
 - Per-frame progress updates
 - Dependencies with heavy trees, copyleft licenses, or new network hosts
 - Telemetry, analytics, or crash reporting
@@ -108,7 +122,7 @@ Do not add tool attribution, co-author trailers, or "generated with" footers to 
 
 ```
 app/core/              shared config, SMTC, LRCLIB, cache, fonts, presets, IPC
-app/widget/            native window, renderer, tray, diagnostics
+app/widget/            native window, renderer, wallpaper backdrop, tray, diagnostics
 app/assets/fonts/      bundled OFL fonts and licenses
 app/src-tauri/         previous Tauri prototype (reference only)
 docs/                  design notes, decisions, phase screenshots and measurements

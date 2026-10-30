@@ -98,10 +98,11 @@ pub fn builtin_presets() -> Vec<Preset> {
                 ..Background::default()
             },
             typography: Typography {
-                active_color: "#eff7f7".to_string(),
-                inactive_opacity: 0.40,
+                active_color: "#172023".to_string(),
+                inactive_opacity: 0.42,
                 weight: 500,
-                ..typography(17.0, "#eff7f7", 0.40)
+                shadow: false,
+                ..typography(17.0, "#172023", 0.42)
             },
         },
         Preset {

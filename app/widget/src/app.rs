@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use iceberg_core::config::{Anchor, Config, TransitionStyle, WidgetMode};
+use iceberg_core::config::{Anchor, BackgroundKind, Config, TransitionStyle, WidgetMode};
 use iceberg_core::fonts::{stock_font_dir, FontEntry, FontLibrary};
 use iceberg_core::lyrics::LyricsService;
 use iceberg_core::media::{MediaEvent, MediaWatcher};
@@ -18,10 +18,11 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::window::{Window, WindowLevel};
 
+use crate::backdrop::{needs_wallpaper, wallpaper_path, BackdropCrop, Wallpaper};
 use crate::demo;
 use crate::dpi::{self, Scale};
 use crate::perf::{self, CpuTimes, MemoryStats};
-use crate::render::{compute_metrics, ArtImage, Content, Renderer, Transition, View};
+use crate::render::{compute_metrics, ArtImage, Content, Metrics, Renderer, Transition, View};
 use crate::tray::{Tray, TrayAction};
 use crate::window::{self, LayeredSurface, StyleReport};
 
@@ -42,6 +43,7 @@ pub struct Options {
     pub quit_after: Option<Duration>,
     pub config_path: Option<PathBuf>,
     pub mode: Option<WidgetMode>,
+    pub background: Option<BackgroundKind>,
 }
 
 pub fn run(options: Options) -> Result<(), String> {
@@ -61,6 +63,9 @@ pub fn run(options: Options) -> Result<(), String> {
     }
     if !config_path.exists() {
         let _ = config.save(&config_path);
+    }
+    if let Some(background) = options.background {
+        config.background.kind = background;
     }
 
     if let Some(directory) = &options.screenshot {
@@ -102,6 +107,7 @@ struct BenchState {
     background_end: u64,
     idle_start: Instant,
     idle_end: Instant,
+    transition_started: Instant,
 }
 
 #[derive(Serialize)]
@@ -112,6 +118,11 @@ struct BenchReport {
     surface: [i32; 2],
     dpi_awareness: &'static str,
     style: Option<StyleReport>,
+    background: &'static str,
+    backdrop: &'static str,
+    background_build_ms: f64,
+    first_background_ms: f64,
+    backdrop_pipeline_ms: f64,
     transitions: u32,
     transition_seconds: f64,
     transition_cpu_one_core: f64,
@@ -140,6 +151,14 @@ pub struct App {
     font_entry: Option<Arc<FontEntry>>,
     font_family: String,
     font_request: String,
+    wallpaper: Option<Wallpaper>,
+    wallpaper_path: Option<PathBuf>,
+    monitor_rect: [i32; 4],
+    window_rect: [i32; 4],
+    backdrop_settle: Option<Instant>,
+    last_background_ms: f64,
+    first_background_ms: f64,
+    last_backdrop_ms: f64,
     scale: Scale,
     monitor_name: String,
     style: Option<StyleReport>,
@@ -189,6 +208,14 @@ impl App {
             font_entry: None,
             font_family: "Lato".to_string(),
             font_request: String::new(),
+            wallpaper: None,
+            wallpaper_path: None,
+            monitor_rect: [0, 0, 0, 0],
+            window_rect: [0, 0, 0, 0],
+            backdrop_settle: None,
+            last_background_ms: 0.0,
+            first_background_ms: 0.0,
+            last_backdrop_ms: 0.0,
             scale: Scale::new(1.0, 100),
             monitor_name: String::new(),
             style: None,
@@ -248,6 +275,46 @@ impl App {
             .unwrap_or_default()
     }
 
+    fn ensure_wallpaper(&mut self, effective: &Config) {
+        if !needs_wallpaper(effective.background.kind) {
+            self.wallpaper = None;
+            self.wallpaper_path = None;
+            return;
+        }
+        let path = wallpaper_path();
+        if path.is_none() {
+            self.wallpaper = None;
+            self.wallpaper_path = None;
+            return;
+        }
+        if path == self.wallpaper_path && self.wallpaper.is_some() {
+            return;
+        }
+        self.wallpaper_path = path.clone();
+        self.wallpaper = path.as_ref().and_then(|value| Wallpaper::load_from(value));
+    }
+
+    fn build_backdrop(&mut self, effective: &Config, metrics: &Metrics) -> Option<BackdropCrop> {
+        if !needs_wallpaper(effective.background.kind) {
+            return None;
+        }
+        self.ensure_wallpaper(effective);
+        let wallpaper = self.wallpaper.as_ref()?;
+        let width = metrics.window_w.max(1) as usize;
+        let height = metrics.window_h.max(1) as usize;
+        Some(wallpaper.crop_cover(
+            self.monitor_rect,
+            [
+                self.window_rect[0],
+                self.window_rect[1],
+                metrics.window_w.max(1),
+                metrics.window_h.max(1),
+            ],
+            width,
+            height,
+        ))
+    }
+
     fn ensure_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
         if self.window.is_some() {
             return Ok(());
@@ -281,6 +348,24 @@ impl App {
         let hwnd = window::hwnd_of(&window);
         let style = window::apply_styles(hwnd, effective.behavior.click_through);
         let work = window::work_area(hwnd);
+        let monitor_rect = window
+            .current_monitor()
+            .map(|monitor| {
+                let position = monitor.position();
+                let size = monitor.size();
+                [
+                    position.x,
+                    position.y,
+                    size.width as i32,
+                    size.height as i32,
+                ]
+            })
+            .unwrap_or([
+                work.left,
+                work.top,
+                work.right - work.left,
+                work.bottom - work.top,
+            ]);
         let name = window
             .current_monitor()
             .and_then(|monitor| monitor.name())
@@ -308,6 +393,10 @@ impl App {
         self.hwnd = Some(hwnd);
         self.window = Some(window);
         self.monitor_name = name;
+        self.monitor_rect = monitor_rect;
+        self.window_rect = [x, y, metrics.window_w.max(1), metrics.window_h.max(1)];
+        self.backdrop_settle = None;
+        self.ensure_wallpaper(&effective);
         self.style = Some(style);
         self.trim_at = None;
         self.background_dirty = true;
@@ -335,6 +424,14 @@ impl App {
         self.font_library.clear();
         self.font_request.clear();
         self.font_family = "Lato".to_string();
+        self.wallpaper = None;
+        self.wallpaper_path = None;
+        self.backdrop_settle = None;
+        self.last_background_ms = 0.0;
+        self.first_background_ms = 0.0;
+        self.last_backdrop_ms = 0.0;
+        self.monitor_rect = [0, 0, 0, 0];
+        self.window_rect = [0, 0, 0, 0];
         self.trim_at = Some(Instant::now() + Duration::from_millis(300));
     }
 
@@ -563,11 +660,18 @@ impl App {
             .map(|entry| entry.metrics)
             .unwrap_or_default();
         let metrics = compute_metrics(&effective, effective.mode, self.scale, font_metrics);
-        let Some(renderer) = self.renderer.as_mut() else {
-            return;
-        };
-        let size_changed = renderer.metrics.as_ref() != Some(&metrics);
+        let size_changed = self
+            .renderer
+            .as_ref()
+            .and_then(|renderer| renderer.metrics.as_ref())
+            != Some(&metrics);
         if size_changed {
+            if let Some(window) = &self.window {
+                if let Ok(position) = window.outer_position() {
+                    self.window_rect[0] = position.x;
+                    self.window_rect[1] = position.y;
+                }
+            }
             if let Some(hwnd) = self.hwnd {
                 window::resize(hwnd, metrics.window_w, metrics.window_h);
             }
@@ -585,6 +689,17 @@ impl App {
             self.background_dirty = true;
             self.text_dirty = true;
         }
+        self.window_rect[2] = metrics.window_w.max(1);
+        self.window_rect[3] = metrics.window_h.max(1);
+        let background_started = Instant::now();
+        let backdrop = if self.background_dirty {
+            self.build_backdrop(&effective, &metrics)
+        } else {
+            None
+        };
+        let Some(renderer) = self.renderer.as_mut() else {
+            return;
+        };
         let view = View {
             config: &effective,
             mode: effective.mode,
@@ -600,11 +715,18 @@ impl App {
             font_family: &self.font_family,
             font_metrics,
             font_entry: font_entry.as_deref(),
+            backdrop: backdrop.as_ref(),
         };
         renderer.ensure_size(&view);
         if self.background_dirty {
             renderer.rebuild_background(&view);
             self.background_dirty = false;
+            let elapsed_ms = background_started.elapsed().as_secs_f64() * 1000.0;
+            self.last_background_ms = elapsed_ms;
+            if self.first_background_ms == 0.0 {
+                self.first_background_ms = elapsed_ms;
+            }
+            self.last_backdrop_ms = renderer.last_backdrop_ms;
         }
         if self.text_dirty {
             renderer.clear_text_cache();
@@ -687,6 +809,9 @@ impl App {
                     if let Some(hwnd) = self.hwnd {
                         window::show_no_activate(hwnd);
                     }
+                    let effective = self.effective();
+                    self.ensure_wallpaper(&effective);
+                    self.background_dirty = true;
                     self.recompute_index(false);
                     self.update_timers();
                     if let Some(window) = &self.window {
@@ -699,6 +824,7 @@ impl App {
                     self.next_frame = None;
                     self.transition = None;
                     self.transition_end = None;
+                    self.backdrop_settle = None;
                     if let Some(hwnd) = self.hwnd {
                         window::hide(hwnd);
                     }
@@ -721,18 +847,42 @@ impl App {
             match bench.stage {
                 0 => {
                     if elapsed >= 1.0 {
-                        bench.stage = 1;
-                        bench.transition_cpu_start = Some(perf::cpu_times());
                         bench.background_start = self
                             .renderer
                             .as_ref()
                             .map(|renderer| renderer.background_rebuilds)
                             .unwrap_or(0);
+                        self.background_dirty = true;
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                        bench.stage = 10;
+                        bench.next_transition = now + Duration::from_millis(400);
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(
+                            now + Duration::from_millis(16),
+                        ));
+                    } else {
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(
+                            bench.started + Duration::from_secs_f64(1.0),
+                        ));
+                    }
+                }
+                10 => {
+                    let count = self
+                        .renderer
+                        .as_ref()
+                        .map(|renderer| renderer.background_rebuilds)
+                        .unwrap_or(0);
+                    if count > bench.background_start || now >= bench.next_transition {
+                        bench.transition_cpu_start = Some(perf::cpu_times());
+                        bench.transition_started = now;
+                        bench.background_start = count;
+                        bench.stage = 1;
                         bench.next_transition = now;
                         event_loop.set_control_flow(ControlFlow::WaitUntil(now));
                     } else {
                         event_loop.set_control_flow(ControlFlow::WaitUntil(
-                            bench.started + Duration::from_secs_f64(1.0),
+                            now + Duration::from_millis(16),
                         ));
                     }
                 }
@@ -784,27 +934,38 @@ impl App {
                     if let Some(end) = self.transition_end {
                         next = next.min(end);
                     }
-                    let stage_end = bench.started + Duration::from_secs_f64(3.9);
+                    let stage_end = bench.transition_started + Duration::from_secs_f64(2.9);
                     next = next.min(stage_end);
                     if now >= stage_end {
-                        bench.stage = 2;
+                        bench.stage = 20;
                         bench.transition_cpu_end = Some(perf::cpu_times());
                         bench.background_end = self
                             .renderer
                             .as_ref()
                             .map(|renderer| renderer.background_rebuilds)
                             .unwrap_or(0);
-                        bench.idle_cpu_start = Some(perf::cpu_times());
-                        bench.idle_start = now;
-                        bench.idle_end = now + Duration::from_secs(2);
                         self.transition = None;
                         self.transition_end = None;
                         self.next_frame = None;
                         if let Some(window) = &self.window {
                             window.request_redraw();
                         }
+                        bench.next_transition = now + Duration::from_millis(200);
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(bench.next_transition));
+                    } else {
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(next));
                     }
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(next));
+                }
+                20 => {
+                    if now >= bench.next_transition {
+                        bench.idle_cpu_start = Some(perf::cpu_times());
+                        bench.idle_start = now;
+                        bench.idle_end = now + Duration::from_secs(2);
+                        bench.stage = 2;
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(bench.idle_end));
+                    } else {
+                        event_loop.set_control_flow(ControlFlow::WaitUntil(bench.next_transition));
+                    }
                 }
                 2 => {
                     if now >= bench.idle_end {
@@ -848,6 +1009,15 @@ impl App {
             .renderer
             .as_ref()
             .and_then(|renderer| renderer.metrics.clone());
+        let effective = self.effective();
+        let background = background_label(effective.background.kind);
+        let backdrop = if !needs_wallpaper(effective.background.kind) {
+            "none"
+        } else if self.wallpaper.is_some() {
+            "wallpaper"
+        } else {
+            "tint"
+        };
         let report = BenchReport {
             renderer: "winit + UpdateLayeredWindow + cosmic-text/swash",
             os_scale: self.scale.os,
@@ -858,6 +1028,11 @@ impl App {
                 .unwrap_or([0, 0]),
             dpi_awareness: dpi::awareness_label(),
             style: self.style,
+            background,
+            backdrop,
+            background_build_ms: self.last_background_ms,
+            first_background_ms: self.first_background_ms,
+            backdrop_pipeline_ms: self.last_backdrop_ms,
             transitions: bench.transitions,
             transition_seconds,
             transition_cpu_one_core: transition_delta / transition_seconds / 10.0,
@@ -927,6 +1102,7 @@ impl ApplicationHandler<AppEvent> for App {
                 background_end: 0,
                 idle_start: start,
                 idle_end: start,
+                transition_started: start,
             });
             if let Some(window) = &self.window {
                 window.request_redraw();
@@ -959,14 +1135,24 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
             }
-            WindowEvent::Moved(_) => {
+            WindowEvent::Moved(position) => {
+                let mut monitor_changed = false;
                 if let Some(window) = &self.window {
+                    self.window_rect[0] = position.x;
+                    self.window_rect[1] = position.y;
                     let name = window
                         .current_monitor()
                         .and_then(|monitor| monitor.name())
                         .unwrap_or_default();
+                    if let Some(monitor) = window.current_monitor() {
+                        let origin = monitor.position();
+                        let size = monitor.size();
+                        self.monitor_rect =
+                            [origin.x, origin.y, size.width as i32, size.height as i32];
+                    }
                     if name != self.monitor_name {
                         self.monitor_name = name;
+                        monitor_changed = true;
                         if self.options.scale_override.is_none() {
                             let os = window.scale_factor();
                             let effective = self.effective();
@@ -975,6 +1161,14 @@ impl ApplicationHandler<AppEvent> for App {
                             self.text_dirty = true;
                             window.request_redraw();
                         }
+                    }
+                }
+                let effective = self.effective();
+                self.ensure_wallpaper(&effective);
+                if needs_wallpaper(effective.background.kind) {
+                    self.backdrop_settle = Some(Instant::now() + Duration::from_millis(120));
+                    if monitor_changed {
+                        self.background_dirty = true;
                     }
                 }
             }
@@ -1067,6 +1261,17 @@ impl ApplicationHandler<AppEvent> for App {
                 next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
             }
         }
+        if let Some(deadline) = self.backdrop_settle {
+            if now >= deadline {
+                self.backdrop_settle = None;
+                self.background_dirty = true;
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
         if let Some(quit_at) = self.quit_at {
             next = Some(next.map(|value| value.min(quit_at)).unwrap_or(quit_at));
         }
@@ -1081,6 +1286,16 @@ impl ApplicationHandler<AppEvent> for App {
             media.stop();
         }
         self.tray = None;
+    }
+}
+
+fn background_label(kind: BackgroundKind) -> &'static str {
+    match kind {
+        BackgroundKind::Solid => "solid",
+        BackgroundKind::Transparent => "transparent",
+        BackgroundKind::Acrylic => "acrylic",
+        BackgroundKind::Ice => "ice",
+        BackgroundKind::Liquid => "liquid",
     }
 }
 
