@@ -61,7 +61,7 @@ pub fn builtin_presets() -> Vec<Preset> {
                 ..Background::default()
             },
             typography: Typography {
-                font_family: "Georgia".to_string(),
+                font_family: "Abril Fatface".to_string(),
                 weight: 400,
                 active_color: "#171a19".to_string(),
                 inactive_opacity: 0.42,
@@ -136,7 +136,7 @@ pub fn builtin_presets() -> Vec<Preset> {
                 ..Background::default()
             },
             typography: Typography {
-                font_family: "Bahnschrift".to_string(),
+                font_family: "Space Mono".to_string(),
                 font_size: 16.0,
                 weight: 400,
                 line_height: 1.55,
@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(config.active_preset.as_deref(), Some("paper"));
         assert_eq!(config.layout.offset_x, 123);
         assert_eq!(config.effective_offset("song"), 200);
-        assert_eq!(config.typography.font_family, "Georgia");
+        assert_eq!(config.typography.font_family, "Abril Fatface");
     }
 
     #[test]

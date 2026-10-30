@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::util::{clamp_f64, clamp_i64, replace_file, sanitize_apps, sanitize_hex};
 
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -264,7 +264,7 @@ impl Default for Background {
 impl Default for Typography {
     fn default() -> Self {
         Self {
-            font_family: "Segoe UI Variable Display".to_string(),
+            font_family: "Lato".to_string(),
             font_size: 17.0,
             weight: 500,
             italic: false,
@@ -375,12 +375,15 @@ impl Config {
     /// Fills fields that did not exist in older files. Serde already supplies defaults for
     /// missing fields; this is the place for value-level migrations.
     pub fn migrate(&mut self) {
-        if self.version == 0 {
-            self.version = CONFIG_VERSION;
+        if self.version < 2 {
+            self.typography.font_family = migrated_font_family(&self.typography.font_family);
+            for song in self.per_song.values_mut() {
+                if let Some(family) = &song.font_family {
+                    song.font_family = Some(migrated_font_family(family));
+                }
+            }
         }
-        if self.version < CONFIG_VERSION {
-            self.version = CONFIG_VERSION;
-        }
+        self.version = CONFIG_VERSION;
         if self.active_preset.as_deref() == Some("") {
             self.active_preset = None;
         }
@@ -422,7 +425,7 @@ impl Config {
         let typography = &mut self.typography;
         typography.font_family = typography.font_family.trim().chars().take(120).collect();
         if typography.font_family.is_empty() {
-            typography.font_family = "Segoe UI Variable Display".to_string();
+            typography.font_family = "Lato".to_string();
         }
         typography.font_size = clamp_f64(typography.font_size, 12.0, 40.0);
         typography.weight = typography.weight.clamp(300, 800);
@@ -565,6 +568,16 @@ impl Config {
     }
 }
 
+fn migrated_font_family(family: &str) -> String {
+    match family.trim() {
+        "Segoe UI Variable Display" | "Segoe UI Variable Text" | "Segoe UI" => "Lato".to_string(),
+        "Georgia" => "Abril Fatface".to_string(),
+        "Bahnschrift" => "Barlow Condensed".to_string(),
+        "Consolas" | "Cascadia Mono" | "Cascadia Code" => "Space Mono".to_string(),
+        other => other.to_string(),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
@@ -581,6 +594,18 @@ mod tests {
         assert_eq!(config.layout.scale, 100);
         assert_eq!(config.lyrics.offset_ms, 0);
         assert!(config.effective().typography.transition != TransitionStyle::Off);
+    }
+
+    #[test]
+    fn version_one_fonts_move_to_the_stock_set() {
+        let mut config = Config::default();
+        config.version = 1;
+        config.typography.font_family = "Segoe UI Variable Display".to_string();
+        config.set_song_font("song", Some("Georgia".to_string()));
+        config.migrate();
+        assert_eq!(config.version, CONFIG_VERSION);
+        assert_eq!(config.typography.font_family, "Lato");
+        assert_eq!(config.font_for("song"), "Abril Fatface");
     }
 
     #[test]
@@ -612,7 +637,7 @@ mod tests {
         assert_eq!(config.background.border_color, "#ffffff");
         assert_eq!(config.background.accent_color, "#f07a4f");
         assert_eq!(config.background.border_width, 4.0);
-        assert_eq!(config.typography.font_family, "Segoe UI Variable Display");
+        assert_eq!(config.typography.font_family, "Lato");
         assert_eq!(config.typography.font_size, 12.0);
         assert_eq!(config.typography.weight, 300);
         assert_eq!(config.typography.inactive_opacity, 0.85);

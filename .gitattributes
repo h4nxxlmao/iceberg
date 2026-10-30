@@ -3,6 +3,8 @@
 *.png binary
 *.ico binary
 *.icns binary
+*.ttf binary
+*.otf binary
 *.exe binary
 *.dll binary
 *.msi binary

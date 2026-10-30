@@ -2,183 +2,134 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A tiny, transparent now-playing and lyrics widget for Windows. It reads the current song from Windows' own media session, fetches synced lyrics from LRCLIB, and stays out of the way.
+A tiny, transparent now-playing and synced-lyrics widget for Windows. It reads the current song from Windows' own media session, fetches synced lyrics from LRCLIB, and stays out of the way.
 
-No Spotify login. No API keys. No account. No telemetry. One background process when idle.
+No Spotify login. No API keys. No account. No telemetry. No WebView in the widget.
 
-> **Rebuild status.** The native widget is now in `app/core` and `app/widget`. The Tauri/WebView2 app in `app/src-tauri` is the previous prototype, kept until the new settings app replaces it.
+> **Rebuild status.** The native widget lives in `app/core` and `app/widget`. The settings app, installer, hotkeys, and remaining desktop polish are still in progress. The Tauri/WebView2 app in `app/src-tauri` is the previous prototype and is not the current build.
 >
-> Renderer decision: [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md). Phase A measurements and review screenshots: [docs/phase-a/RESULTS.md](docs/phase-a/RESULTS.md).
->
-> ```powershell
-> cd app
-> cargo build --release -p iceberg-widget
-> ```
+> Renderer decision: [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md). Native measurements and review screenshots: [Phase A](docs/phase-a/RESULTS.md) and [Phase B](docs/phase-b/RESULTS.md).
 
-![Previous Tauri prototype](docs/screenshot.png)
+![Native Card preview](docs/phase-b/card-100.png)
 
-The screenshot above is the previous Tauri prototype. Phase A previews of the native renderer are in `docs/phase-a/`.
+Offscreen render over a neutral review backdrop. The real widget is a transparent layered window on the desktop.
 
-## What it does
+## Current native widget
 
-- Frameless, always-on-top widget with three modes: Island, Card, and Lyrics only
-- Time-synced lyrics from [LRCLIB](https://lrclib.net) with automatic caching
-- Global hotkeys, tray controls, click-through lock, edge snapping, per-monitor position memory
-- Native acrylic/mica as an option, no CSS backdrop blur
-- Settings window with live preview, themes, offsets, LRCLIB search, `.lrc` import, and diagnostics
-- Starts as a tray-only process; the WebView2 window exists only while it is needed
-- Visual direction is documented in [docs/DESIGN.md](docs/DESIGN.md)
+- Frameless, always-on-top widget with Island, Card, and Lyrics-only modes
+- Event-driven Windows SMTC now-playing; no polling loop
+- Time-synced lyrics from [LRCLIB](https://lrclib.net), with plain-text, instrumental, loading, empty, unsynced, and offline states
+- Cached static background and shaped lyric masks; a lyric transition redraws only the text layer
+- Slide, fade, and off transitions, plus the configured active color, inactive opacity, alignment, case, letter spacing, line height, shadow, and outline
+- Eight bundled OFL serif, sans, mono, handwritten, condensed, rounded, and display families, loaded lazily and normalized for optical size and baseline. Font picker and upload UI come with the settings app.
+- Per-song lyric offsets and per-song font overrides in the config schema
+- Tray show/hide/quit, drag-to-move, click-through option, demo mode, and offscreen screenshot/benchmark diagnostics
+- Exact tool-window styles set and verified in code: borderless, no activate, topmost, layered, no taskbar button, never foreground
+- Tray-only mode creates no window and loads no font data until playback exists
 
-## Install
-
-Grab the latest `Iceberg_x.y.z_x64-setup.exe` from [Releases](https://github.com/h4nxxlmao/iceberg/releases) and run it. The installer is per-user and does not need administrator rights.
-
-The build is not code-signed yet, so Windows SmartScreen may show a warning. Choose **More info → Run anyway** only if you downloaded it from this repository.
-
-Iceberg needs the Microsoft Edge WebView2 Runtime. Windows 11 includes it; the installer uses the small online bootstrapper when it is missing.
+The settings app is a separate process that will be created on demand and exit completely when closed. It is not built yet.
 
 ## Build from source
 
-Requirements: Windows 10/11 x64, Rust stable, Node.js LTS, and the WebView2 runtime.
+Requirements: Windows 10/11 x64 and a stable Rust toolchain.
 
 ```powershell
 cd app
-npm ci
-npm run tauri build
+cargo build --release -p iceberg-widget
+cargo test --workspace
 ```
 
-The installer is written to `app/src-tauri/target/release/bundle/nsis/`. The executable is at `app/src-tauri/target/release/iceberg.exe`.
-
-For development:
+Run the widget with the built-in demo instead of a media session:
 
 ```powershell
-cd app
-npm run tauri dev
+cargo run -p iceberg-widget -- --demo
 ```
 
-Do not use a bare `cargo build --release` when you want a standalone executable: without Tauri's `custom-protocol` feature the debug URL is embedded instead of the frontend. The Tauri CLI enables it for you.
+Render review screenshots and exit:
 
-## Using it
+```powershell
+cargo run -p iceberg-widget -- --screenshot=../docs/phase-b
+```
 
-The app starts in the tray with no window. When a player exposes a Windows media session, the widget appears. When nothing is playing it goes away after the configured idle timeout.
+Run the cached-text transition benchmark:
 
-Left-click the tray icon to show or hide the widget. Right-click for mode, theme, offset, click-through, autostart, settings, and quit.
+```powershell
+cargo run -p iceberg-widget -- --bench=../docs/phase-b/bench-100.json --scale=100
+```
 
-Default hotkeys (configurable in Settings):
+The release executable is `app/target/release/iceberg.exe`. For a packaged build, `app/assets/fonts` is copied to a `fonts` folder next to the executable. The installer and settings app are not available yet; do not use the old `npm run tauri build` path for the native widget.
 
-| Action | Shortcut |
-| --- | --- |
-| Show / hide | `Ctrl+Alt+I` |
-| Click-through lock | `Ctrl+Alt+L` |
-| Lyrics +100 ms | `Ctrl+Alt+Right` |
-| Lyrics −100 ms | `Ctrl+Alt+Left` |
-| Cycle mode | `Ctrl+Alt+M` |
-| Quick peek | `Ctrl+Alt+P` |
-| Settings | `Ctrl+Alt+,` |
+## Measurements
 
-Click a lyric line to copy it. Drag any non-interactive part of the widget to move it; with edge snap enabled it snaps to the work-area edges and center. Positions are remembered per monitor.
+Windows 11, release build, default Lato font, 12 lyric transitions at 200 ms with 240 ms spacing. CPU is process CPU time over a 2.9 s transition window plus a 2 s idle window. Three runs per scale; transition CPU shows the median, idle shows the observed range. Total CPU is normalized across the build machine's 16 logical processors. Working set and private bytes are for `iceberg.exe`; there are no child processes.
 
-## Performance
+| Scale | Surface | Transition CPU (one core / total) | Idle CPU | Working set / private |
+| ---: | ---: | ---: | ---: | ---: |
+| 100% | 388 x 245 | 5.39% / 0.34% | 0% | 20.6 / 6.9 MB |
+| 150% | 582 x 368 | 8.08% / 0.51% | 0% | 23.2 / 9.1 MB |
+| 200% | 776 x 490 | 12.93% / 0.81% | 0–0.78% / 0–0.05% | 26.8 / 12.0 MB |
 
-Measured on Windows 11 build 26300, WebView2 runtime 156, 8 logical cores, release build, default settings, no settings window open.
+Transition one-core ranges across the three runs: 4.85–5.93%, 7.54–8.62%, and 12.93–14.55%. At 200%, two of three idle samples read 0.78% of one core (0.05% total) and one read 0.
 
-RAM is the **private working set** of `iceberg.exe` plus every descendant process, read from `Win32_PerfFormattedData_PerfProc_Process`. CPU is process CPU time over a measured wall-clock window. The CPU figure is steady state after the first lyric transitions. The first 12 seconds after a cold launch include WebView2 setup and the demo's first line changes, so that window can read above 1%.
+Background rebuilds during transitions: **0**. The 150% and 200% rows use `--scale` because the build machine has a single 100% monitor; real mixed-DPI monitor moves are still untested.
 
-| State | Target | Measured |
-| --- | --- | --- |
-| Tray only, nothing playing | under 15 MB | **1.7 MB** |
-| Widget visible and playing | under 70 MB | **59.2 MB** |
-| Hidden / paused | under 30 MB | **11.0 MB** after teardown |
-| CPU while lyrics show | under 1% | **0.09 CPU-seconds / 12 s** (≈0.78% of one core, ≈0.10% total) |
-| Executable | under 5 MB | **4.07 MB** |
-| NSIS installer | under 8 MB | **1.69 MiB** |
+The widget stays under the 40 MB software-rendering budget at every tested scale. The release executable is **3.20 MiB**; the bundled font set is **2.85 MiB**. The font library only reads the active family: a tray-only session carries no font data. The last clean tray-only measurement was 3.3 MB working set / 2.6 MB private; a fresh tray-only sample on the build machine was not possible because a live media session kept the widget window open.
 
-How the budget is met:
+The font previews use the same card at every family: 388 x 245 at 100%. Optical size and baseline are normalized from each font's cap height and ascender; line spacing stays on the user's line-height grid so the widget does not resize when the family changes.
 
-- No window and no WebView2 process until playback starts. Idle CPU measured 0.03 CPU-seconds over 10 seconds.
-- WebView2 runs single-process with GPU disabled, the two flags that made the largest difference on this machine.
-- The window is hidden, suspended, then destroyed after 5 seconds. The process tree is trimmed with `EmptyWorkingSet` on hide, after teardown, and when the widget is destroyed.
-- Native acrylic/mica is off by default. It works, but adds DWM/compositor work; enable it in Appearance if you want the blur.
-- There is no equalizer. The active lyric and the play glyph carry the state.
-- The progress bar steps every 10 seconds with a 60 ms transition. A single long-running transition cost about 28% of one core in this transparent window, so it was cut. There are no per-frame loops.
-- Lyrics render only the visible 3–5 lines. Sync is one timer to the next line, not a frame loop.
-- The WebView2 cache is capped at 16 MB by flag. The profile is trimmed at startup and on exit if it exceeds 30 MB. Lyrics and artwork caches are capped at 30 MB with oldest-first eviction.
+## Typography
 
-### WebView2 flags: kept and rejected
+The stock families are Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC, Space Mono, Varela Round, and Lobster. Each is SIL Open Font License 1.1; the license texts and sources are in [app/assets/fonts](app/assets/fonts/README.md).
 
-Kept:
+User fonts are read from `%LOCALAPPDATA%\Iceberg\fonts`. The core validates the file, rejects empty or oversized files, reads family/subfamily/metrics/variable axes, and falls back to Lato if a requested family cannot be resolved. Weight uses the family's bold face when available and a synthetic embolden above 600 when it is not; italic is a synthetic shear so the control remains real for families without an italic file.
 
-| Flag | Reason |
-| --- | --- |
-| `--single-process` | Largest RAM saving. The page is local-only and served under a strict CSP. |
-| `--disable-gpu` | Saves about 10 MB; transparency and the reduced animation set still render correctly. |
-| `--disable-background-networking`, `--disable-extensions`, `--disable-sync`, `--disable-default-apps`, `--no-pings` | Removes work a widget does not need. |
-| `--disable-features=msSmartScreenProtection,msWebOOUI,msPdfOOUI,TranslateUI` | Replaces Wry's defaults, which are lost when custom browser arguments are supplied. |
-| `--renderer-process-limit=1` | Harmless here and useful if single-process is removed. |
-| `--js-flags=--max-old-space-size=32` | Caps V8's old space; the frontend is tiny. |
-| `--disk-cache-size=16777216` | Keeps the profile from growing without bound. |
-
-Rejected:
-
-| Change | Result |
-| --- | --- |
-| Default Acrylic/Mica | Works, but adds compositor CPU (0.33 CPU-seconds / 12 s vs 0.08); kept as an option rather than the default. |
-| `--enable-low-end-device-mode` | Tested as a candidate; did not reduce private working set in our baseline, so it is not used. |
-| `--in-process-gpu` | Works, but 86.3 MB visible; above budget. |
-| Continuous progress transition | 2.25 CPU-seconds per 8 seconds (about 28% of one core) in this transparent window. Replaced with stepped updates. |
-| Animated equalizer | Same problem; cut. The static mark was removed as well. |
-| `--disable-breakpad`, `--disable-crash-reporter` | Crashpad still starts; no measurable gain. |
-
-If a future WebView2 update breaks single-process mode, remove `--single-process` from `DEFAULT_WEBVIEW_ARGS` in `app/src-tauri/src/window.rs`. Expect roughly 10 MB more RAM while the widget is visible.
+Word timings from enhanced LRC are parsed by the core but are not highlighted yet.
 
 ## Configuration and data
 
 | Path | Contents |
 | --- | --- |
-| `%APPDATA%\Iceberg\config.json` | Settings, per-song offsets, theme |
+| `%APPDATA%\Iceberg\config.json` | Settings, per-song offsets and font overrides, presets |
 | `%LOCALAPPDATA%\Iceberg\cache` | Lyrics and artwork cache |
-| `%LOCALAPPDATA%\Iceberg\webview` | Shared WebView2 profile |
-| `%LOCALAPPDATA%\Iceberg\window.json` | Position per monitor |
+| `%LOCALAPPDATA%\Iceberg\fonts` | User-imported font files |
+| `%LOCALAPPDATA%\Iceberg\presets` | User presets |
 
-The config is validated on load and on every save. Unknown or invalid values fall back to defaults instead of crashing the app.
-
-**Portable mode:** put an empty `portable.txt` next to `iceberg.exe`. Config and cache are then stored in that folder (`config.json` and `data/`). You can also pass `--portable`.
+The config is versioned, migrated, and validated on load. Missing or invalid values fall back to defaults instead of crashing. Older configs that referenced system fonts are migrated to the closest stock family.
 
 ## Privacy and security
 
-- The only network requests Iceberg itself makes go to `lrclib.net`, over HTTPS, with a 5 second timeout and response size limits. WebView2 is launched with background networking disabled and loads no remote content.
-- Lyrics, titles, artists, and artwork are treated as untrusted text/data. Lyrics are rendered with Svelte text bindings, never HTML.
-- The webview loads only bundled local assets under a strict CSP: no remote content, no eval, no inline scripts, no asset protocol.
-- Tauri capabilities are limited to events and window dragging.
-- No telemetry, analytics, accounts, or crash reporting from Iceberg itself.
+- The only network requests Iceberg makes go to `lrclib.net` over HTTPS, with timeouts and response size limits.
+- Lyrics, titles, artists, and artwork are untrusted data. The native renderer draws them as text; there is no HTML or WebView in the widget.
+- No telemetry, analytics, accounts, or crash reporting.
+- Font files and config are validated before use. The widget's Tauri capabilities will be least-privilege when the settings app lands.
+- No remote content is loaded in the settings app.
 
 See [SECURITY.md](SECURITY.md) for reporting.
 
-## Known limitations
+## Not done yet
 
-- Single-process WebView2 is not an officially supported Microsoft configuration. It is used because it is the only way this widget met its RAM target on the build machine. The content is local and the app never navigates.
-- The progress bar updates in 10 second steps. It is accurate and cheap, but it is not a continuously moving animation.
-- Long titles and artists ellipsize. They scroll only while hovered, so the CPU budget is not spent on an idle marquee.
-- Acrylic/Mica work but add compositor CPU; they are off by default. The measured acrylic run used 0.33 CPU-seconds per 12 seconds.
-- SMTC does not expose the next track, so lyrics cannot be prefetched for it.
-- Album-art accent uses a simple dominant-color sample, not a full palette.
-- The settings window adds memory while it is open; the widget budget is measured with settings closed.
-- Lyrics are best-effort. The wrong-lyrics search and `.lrc` import exist for that reason.
+- Settings app, named-pipe IPC, presets UI, font picker and font upload UI
+- Installer and resource packaging
+- Global hotkeys, per-track offset hotkeys, fullscreen auto-hide, idle auto-hide, edge snapping, lock, and real multi-monitor/DPI moves
+- Windows 10 verification, two-monitor testing, and the 20-minute leak run
+- Word-level lyric highlighting and the live-capture backdrop experiment
+
+The old Tauri prototype under `app/src-tauri` is kept for reference only. The current widget does not use WebView2.
 
 ## Project layout
 
 ```
-app/                 Tauri 2 desktop app
-  src/               Svelte widget and settings UI
-  src-tauri/src/     Rust backend (SMTC, LRCLIB, cache, window, tray, perf)
-site/                local promotional site, not part of the published app
+app/
+  core/          shared config, SMTC, LRCLIB, cache, fonts, presets, IPC schema
+  widget/        native always-on widget, renderer, tray, diagnostics
+  assets/fonts/  bundled OFL font files and licenses
+  src-tauri/     previous Tauri prototype (reference only)
+docs/            design notes, renderer decision, phase screenshots and measurements
 ```
-
-The Rust side is split into `smtc.rs` (Windows media events), `lyrics.rs` (LRCLIB + LRC parsing), `cache.rs`, `window.rs`, `tray.rs`, `hotkeys.rs`, `perf.rs`, `config.rs`, and `timers.rs`.
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Small, focused changes; run fmt, clippy, tests, frontend typecheck, and build before opening a pull request.
+Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` from `app` before opening a pull request.
 
 ## License
 

@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-
 use cosmic_text::{
-    Attrs, Buffer, Color, Family, FontSystem, Metrics as TextMetrics, Shaping, Style, SwashCache,
-    Weight, Wrap,
+    Attrs, Buffer, Color, Family, FontSystem, Metrics as TextMetrics, Shaping, SwashCache, Weight,
+    Wrap,
 };
-use iceberg_core::config::{Align, BackgroundKind, Config, TextCase, WidgetMode};
+use iceberg_core::config::{Align, BackgroundKind, Config, TextCase, TransitionStyle, WidgetMode};
+use iceberg_core::fonts::{FontEntry, FontMetrics};
 use iceberg_core::model::{Lyrics, Playback, Track};
+use std::collections::HashMap;
 
 use crate::dpi::Scale;
 
@@ -198,16 +198,26 @@ pub struct Metrics {
     pub lyric_w: f64,
     pub font_size: f64,
     pub line_height: f64,
+    pub baseline_offset: f64,
     pub visible_lines: usize,
     pub radius: f64,
     pub border: f64,
 }
 
-pub fn compute_metrics(config: &Config, mode: WidgetMode, scale: Scale) -> Metrics {
+pub fn compute_metrics(
+    config: &Config,
+    mode: WidgetMode,
+    scale: Scale,
+    font: FontMetrics,
+) -> Metrics {
     let effective = scale.effective();
     let padding = config.background.padding * effective;
-    let font_size = config.typography.font_size * effective;
-    let line_height = font_size * config.typography.line_height;
+    let base_font_size = config.typography.font_size * effective;
+    let font_size = base_font_size * font.size_multiplier as f64;
+    // The line grid follows the user's line-height setting, not each family's natural
+    // leading. Otherwise the whole widget would resize when the font changes.
+    let line_height = base_font_size * config.typography.line_height;
+    let baseline_offset = base_font_size * font.baseline_offset_em as f64;
     let visible_lines = config.typography.visible_lines as usize;
     let card_w = config.layout.width * effective;
     let margin = if config.background.shadow {
@@ -293,6 +303,7 @@ pub fn compute_metrics(config: &Config, mode: WidgetMode, scale: Scale) -> Metri
         lyric_w,
         font_size,
         line_height,
+        baseline_offset,
         visible_lines: lyric_lines,
         radius,
         border,
@@ -312,11 +323,14 @@ pub struct View<'a> {
     pub transition: Option<Transition>,
     pub now_ms: i64,
     pub scale: Scale,
+    pub font_family: &'a str,
+    pub font_metrics: FontMetrics,
+    pub font_entry: Option<&'a FontEntry>,
 }
 
 impl<'a> View<'a> {
     pub fn metrics(&self) -> Metrics {
-        compute_metrics(self.config, self.mode, self.scale)
+        compute_metrics(self.config, self.mode, self.scale, self.font_metrics)
     }
 
     fn accent(&self) -> Rgba {
@@ -332,10 +346,12 @@ impl<'a> View<'a> {
         Rgba::from_hex(&self.config.typography.active_color, 1.0)
     }
 
-    fn font_family(&self) -> String {
-        self.track
-            .map(|track| self.config.font_for(&track.key))
-            .unwrap_or_else(|| self.config.typography.font_family.clone())
+    fn synthetic_bold(&self, weight: u16) -> bool {
+        weight >= 600
+            && self
+                .font_entry
+                .map(|entry| !entry.has_bold && entry.info.weight < 600)
+                .unwrap_or(false)
     }
 }
 
@@ -351,6 +367,8 @@ struct TextMask {
 pub struct Renderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
+    loaded_font: String,
+    loaded_faces: Vec<cosmic_text::fontdb::ID>,
     pub metrics: Option<Metrics>,
     background: Vec<u8>,
     text: Vec<u8>,
@@ -366,6 +384,8 @@ impl Renderer {
         Self {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
+            loaded_font: String::new(),
+            loaded_faces: Vec::new(),
             metrics: None,
             background: Vec::new(),
             text: Vec::new(),
@@ -378,6 +398,7 @@ impl Renderer {
     }
 
     pub fn ensure_size(&mut self, view: &View<'_>) -> bool {
+        self.ensure_font(view);
         let metrics = view.metrics();
         if self.metrics.as_ref() == Some(&metrics) {
             return false;
@@ -389,6 +410,38 @@ impl Renderer {
         self.frame = vec![0u8; bytes];
         self.clear_text_cache();
         true
+    }
+
+    fn ensure_font(&mut self, view: &View<'_>) {
+        if self.loaded_font == view.font_family {
+            return;
+        }
+        for id in self.loaded_faces.drain(..) {
+            self.font_system.db_mut().remove_face(id);
+        }
+        if let Some(entry) = view.font_entry {
+            let existing: Vec<_> = self
+                .font_system
+                .db_mut()
+                .faces()
+                .map(|face| face.id)
+                .collect();
+            self.font_system
+                .db_mut()
+                .load_font_data(entry.regular.clone());
+            if let Some(bold) = &entry.bold {
+                self.font_system.db_mut().load_font_data(bold.clone());
+            }
+            self.loaded_faces = self
+                .font_system
+                .db_mut()
+                .faces()
+                .map(|face| face.id)
+                .filter(|id| !existing.contains(id))
+                .collect();
+        }
+        self.loaded_font = view.font_family.to_string();
+        self.clear_text_cache();
     }
 
     pub fn clear_text_cache(&mut self) {
@@ -456,15 +509,16 @@ impl Renderer {
                 .track
                 .map(|track| track.artist.as_str())
                 .unwrap_or("Nothing playing");
-            let title_size = 13.5 * metrics.scale as f32;
-            let artist_size = 11.5 * metrics.scale as f32;
-            let family = view.font_family();
+            let title_size = 13.5 * metrics.scale as f32 * view.font_metrics.size_multiplier;
+            let artist_size = 11.5 * metrics.scale as f32 * view.font_metrics.size_multiplier;
+            let title_offset = metrics.baseline_offset * 13.5 / view.config.typography.font_size;
+            let artist_offset = metrics.baseline_offset * 11.5 / view.config.typography.font_size;
+            let family = view.font_family;
             let title_mask = self.rasterize_text(
                 title,
-                &family,
+                family,
                 title_size,
                 600,
-                false,
                 0.0,
                 active,
                 metrics.meta_w as f32,
@@ -482,17 +536,18 @@ impl Renderer {
                 metrics.window_h,
                 &title_mask,
                 title_x,
-                metrics.meta_y as i32,
+                (metrics.meta_y + title_offset) as i32,
                 1.0,
                 view.config.typography.shadow,
                 false,
+                false,
+                view.synthetic_bold(600),
             );
             let artist_mask = self.rasterize_text(
                 artist,
-                &family,
+                family,
                 artist_size,
                 400,
-                false,
                 0.0,
                 active.with_alpha(0.54),
                 metrics.meta_w as f32,
@@ -510,9 +565,11 @@ impl Renderer {
                 metrics.window_h,
                 &artist_mask,
                 artist_x,
-                (metrics.meta_y + title_size as f64 * 1.42) as i32,
+                (metrics.meta_y + title_size as f64 * 1.42 + artist_offset) as i32,
                 1.0,
                 view.config.typography.shadow,
+                false,
+                false,
                 false,
             );
         }
@@ -596,13 +653,12 @@ impl Renderer {
                 .unwrap_or('I')
                 .to_uppercase()
                 .to_string();
-            let family = view.font_family();
+            let family = view.font_family;
             let mask = self.rasterize_text(
                 &letter,
-                &family,
+                family,
                 (size * 0.42) as f32,
                 600,
-                false,
                 0.0,
                 active.with_alpha(0.55),
                 size as f32,
@@ -618,6 +674,8 @@ impl Renderer {
                 mask_x as i32,
                 mask_y as i32,
                 1.0,
+                false,
+                false,
                 false,
                 false,
             );
@@ -650,6 +708,14 @@ impl Renderer {
                     .map(|transition| transition.position(view.now_ms))
                     .or_else(|| view.current_index.map(|index| index as f32))
                     .unwrap_or(0.0);
+                let y_center = if view.config.typography.transition == TransitionStyle::Fade {
+                    view.transition
+                        .map(|transition| transition.to)
+                        .or_else(|| view.current_index.map(|index| index as f32))
+                        .unwrap_or(center)
+                } else {
+                    center
+                };
                 let lines = metrics.visible_lines.max(1);
                 let before = (lines / 2) as f32;
                 let range = visible_range(count, center, lines);
@@ -664,8 +730,9 @@ impl Renderer {
                         continue;
                     }
                     let y = metrics.lyric_y
+                        + metrics.baseline_offset
                         + before as f64 * metrics.line_height
-                        + (index as f64 - center as f64) * metrics.line_height;
+                        + (index as f64 - y_center as f64) * metrics.line_height;
                     let text = apply_case(&line.text, view.config.typography.case);
                     let mask = self.line_mask(view, metrics, index, &text);
                     let x = aligned_x(
@@ -684,6 +751,8 @@ impl Renderer {
                         opacity,
                         view.config.typography.shadow,
                         view.config.typography.outline,
+                        view.config.typography.italic,
+                        view.synthetic_bold(view.config.typography.weight as u16),
                     );
                 }
                 self.draw_marker(view, metrics, before);
@@ -729,10 +798,14 @@ impl Renderer {
                     1.0,
                     false,
                     false,
+                    false,
+                    view.synthetic_bold(600),
                 );
                 for (index, line) in lines.iter().enumerate() {
                     let mask = self.plain_mask(view, metrics, index, line);
-                    let y = metrics.lyric_y + (index as f64 + 1.0) * metrics.line_height;
+                    let y = metrics.lyric_y
+                        + metrics.baseline_offset * 0.9
+                        + (index as f64 + 1.0) * metrics.line_height;
                     let x = aligned_x(
                         view.config.typography.align,
                         metrics.lyric_x,
@@ -748,6 +821,8 @@ impl Renderer {
                         y as i32,
                         view.config.typography.inactive_opacity as f32,
                         view.config.typography.shadow,
+                        false,
+                        view.config.typography.italic,
                         false,
                     );
                 }
@@ -802,20 +877,19 @@ impl Renderer {
         sub: Option<&str>,
         opacity: f32,
     ) {
-        let family = view.font_family();
+        let family = view.font_family;
         let active = view.active_color();
         let mask = self.rasterize_text(
             message,
-            &family,
+            family,
             metrics.font_size as f32,
             600,
-            view.config.typography.italic,
             view.config.typography.letter_spacing as f32,
             active,
             metrics.lyric_w as f32,
             1,
         );
-        let y = metrics.lyric_y + metrics.line_height * 0.55;
+        let y = metrics.lyric_y + metrics.baseline_offset + metrics.line_height * 0.55;
         let x = aligned_x(
             view.config.typography.align,
             metrics.lyric_x,
@@ -832,14 +906,15 @@ impl Renderer {
             opacity,
             view.config.typography.shadow,
             false,
+            view.config.typography.italic,
+            view.synthetic_bold(600),
         );
         if let Some(sub) = sub {
             let sub_mask = self.rasterize_text(
                 sub,
-                &family,
+                family,
                 metrics.font_size as f32 * 0.7,
                 400,
-                false,
                 0.0,
                 active.with_alpha(0.5),
                 metrics.lyric_w as f32,
@@ -859,6 +934,8 @@ impl Renderer {
                 sub_x,
                 (y + metrics.line_height * 1.1) as i32,
                 opacity,
+                false,
+                false,
                 false,
                 false,
             );
@@ -952,13 +1029,12 @@ impl Renderer {
         if let Some(mask) = self.line_masks.get(&index) {
             return mask.clone();
         }
-        let family = view.font_family();
+        let family = view.font_family;
         let mask = self.rasterize_text(
             text,
-            &family,
+            family,
             metrics.font_size as f32,
             view.config.typography.weight as u16,
-            view.config.typography.italic,
             view.config.typography.letter_spacing as f32,
             view.active_color(),
             metrics.lyric_w as f32,
@@ -982,13 +1058,12 @@ impl Renderer {
         if let Some(mask) = self.plain_masks.get(&index) {
             return mask.clone();
         }
-        let family = view.font_family();
+        let family = view.font_family;
         let mask = self.rasterize_text(
             text,
-            &family,
+            family,
             metrics.font_size as f32 * 0.9,
             400,
-            view.config.typography.italic,
             0.0,
             view.active_color(),
             metrics.lyric_w as f32,
@@ -1014,18 +1089,8 @@ impl Renderer {
         if let Some(mask) = self.state_masks.get(&key) {
             return mask.clone();
         }
-        let family = view.font_family();
-        let mask = self.rasterize_text(
-            text,
-            &family,
-            size,
-            weight,
-            false,
-            letter_spacing,
-            color,
-            width,
-            1,
-        );
+        let family = view.font_family;
+        let mask = self.rasterize_text(text, family, size, weight, letter_spacing, color, width, 1);
         self.state_masks.insert(key, mask.clone());
         mask
     }
@@ -1037,7 +1102,6 @@ impl Renderer {
         family: &str,
         size: f32,
         weight: u16,
-        italic: bool,
         letter_spacing: f32,
         color: Rgba,
         max_width: f32,
@@ -1066,7 +1130,6 @@ impl Renderer {
         let attrs = Attrs::new()
             .family(Family::Name(family))
             .weight(Weight(weight))
-            .style(if italic { Style::Italic } else { Style::Normal })
             .letter_spacing(letter_spacing)
             .metrics(metrics);
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
@@ -1393,6 +1456,8 @@ fn blit_mask(
     opacity: f32,
     shadow: bool,
     outline: bool,
+    italic: bool,
+    embolden: bool,
 ) {
     let opacity = opacity.clamp(0.0, 1.0);
     if opacity <= 0.0 {
@@ -1414,12 +1479,28 @@ fn blit_mask(
                 x + ox,
                 y + oy,
                 strength * opacity,
+                italic,
             );
         }
     }
+    if embolden {
+        for (ox, oy) in [(1, 0), (0, 1), (1, 1), (1, -1)] {
+            blit_colored_silhouette(
+                target,
+                target_w,
+                target_h,
+                mask,
+                x + ox,
+                y + oy,
+                0.45 * opacity,
+                italic,
+            );
+        }
+    }
+    let scale = (opacity * 255.0).round() as u32;
     for py in 0..mask.height as i32 {
         for px in 0..mask.width as i32 {
-            let tx = x + mask.offset_x + px;
+            let tx = x + mask.offset_x + px + italic_shift(mask.height, py, italic);
             let ty = y + mask.offset_y + py;
             if tx < 0 || ty < 0 || tx >= target_w || ty >= target_h {
                 continue;
@@ -1428,18 +1509,27 @@ fn blit_mask(
             if mask.pixels[source + 3] == 0 {
                 continue;
             }
-            let alpha = (mask.pixels[source + 3] as f32 * opacity) as u32;
+            let alpha = mask.pixels[source + 3] as u32 * scale / 255;
             let inverse = 255 - alpha;
             let index = ((ty * target_w + tx) * 4) as usize;
-            let sb = mask.pixels[source] as u32 * alpha / 255;
-            let sg = mask.pixels[source + 1] as u32 * alpha / 255;
-            let sr = mask.pixels[source + 2] as u32 * alpha / 255;
+            // Mask pixels are premultiplied by their own alpha, so opacity scales the
+            // whole color rather than multiplying alpha into RGB a second time.
+            let sb = mask.pixels[source] as u32 * scale / 255;
+            let sg = mask.pixels[source + 1] as u32 * scale / 255;
+            let sr = mask.pixels[source + 2] as u32 * scale / 255;
             target[index] = (sb + target[index] as u32 * inverse / 255).min(255) as u8;
             target[index + 1] = (sg + target[index + 1] as u32 * inverse / 255).min(255) as u8;
             target[index + 2] = (sr + target[index + 2] as u32 * inverse / 255).min(255) as u8;
             target[index + 3] = (alpha + target[index + 3] as u32 * inverse / 255).min(255) as u8;
         }
     }
+}
+
+fn italic_shift(height: usize, py: i32, italic: bool) -> i32 {
+    if !italic {
+        return 0;
+    }
+    ((height as i32 - py) as f32 * 0.18).round() as i32
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1451,10 +1541,11 @@ fn blit_silhouette(
     x: i32,
     y: i32,
     strength: f32,
+    italic: bool,
 ) {
     for py in 0..mask.height as i32 {
         for px in 0..mask.width as i32 {
-            let tx = x + mask.offset_x + px;
+            let tx = x + mask.offset_x + px + italic_shift(mask.height, py, italic);
             let ty = y + mask.offset_y + py;
             if tx < 0 || ty < 0 || tx >= target_w || ty >= target_h {
                 continue;
@@ -1471,6 +1562,43 @@ fn blit_silhouette(
             target[index + 1] = (target[index + 1] as u32 * inverse / 255) as u8;
             target[index + 2] = (target[index + 2] as u32 * inverse / 255) as u8;
             target[index + 3] = (alpha + target[index + 3] as u32 * inverse / 255).min(255) as u8;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_colored_silhouette(
+    target: &mut [u8],
+    target_w: i32,
+    target_h: i32,
+    mask: &TextMask,
+    x: i32,
+    y: i32,
+    strength: f32,
+    italic: bool,
+) {
+    let scale = (strength.clamp(0.0, 1.0) * 255.0).round() as u32;
+    for py in 0..mask.height as i32 {
+        for px in 0..mask.width as i32 {
+            let tx = x + mask.offset_x + px + italic_shift(mask.height, py, italic);
+            let ty = y + mask.offset_y + py;
+            if tx < 0 || ty < 0 || tx >= target_w || ty >= target_h {
+                continue;
+            }
+            let source = (py as usize * mask.width + px as usize) * 4;
+            let value = mask.pixels[source + 3] as u32 * scale / 255;
+            if value == 0 {
+                continue;
+            }
+            let inverse = 255 - value;
+            let index = ((ty * target_w + tx) * 4) as usize;
+            let sb = mask.pixels[source] as u32 * scale / 255;
+            let sg = mask.pixels[source + 1] as u32 * scale / 255;
+            let sr = mask.pixels[source + 2] as u32 * scale / 255;
+            target[index] = (sb + target[index] as u32 * inverse / 255).min(255) as u8;
+            target[index + 1] = (sg + target[index + 1] as u32 * inverse / 255).min(255) as u8;
+            target[index + 2] = (sr + target[index + 2] as u32 * inverse / 255).min(255) as u8;
+            target[index + 3] = (value + target[index + 3] as u32 * inverse / 255).min(255) as u8;
         }
     }
 }
@@ -1518,9 +1646,24 @@ mod tests {
 
     #[test]
     fn metrics_scale_with_dpi_and_user_scale() {
-        let base = compute_metrics(&config(), WidgetMode::Card, Scale::new(1.0, 100));
-        let hd = compute_metrics(&config(), WidgetMode::Card, Scale::new(1.5, 100));
-        let double = compute_metrics(&config(), WidgetMode::Card, Scale::new(2.0, 100));
+        let base = compute_metrics(
+            &config(),
+            WidgetMode::Card,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
+        let hd = compute_metrics(
+            &config(),
+            WidgetMode::Card,
+            Scale::new(1.5, 100),
+            FontMetrics::default(),
+        );
+        let double = compute_metrics(
+            &config(),
+            WidgetMode::Card,
+            Scale::new(2.0, 100),
+            FontMetrics::default(),
+        );
         assert_eq!(base.window_w, 388);
         assert_eq!(hd.window_w, 582);
         assert_eq!(double.window_w, 776);
@@ -1529,17 +1672,50 @@ mod tests {
     }
 
     #[test]
+    fn font_metrics_normalize_size_height_and_baseline() {
+        let font = FontMetrics {
+            size_multiplier: 1.25,
+            baseline_offset_em: 0.04,
+            line_height_multiplier: 0.9,
+        };
+        let metrics = compute_metrics(&config(), WidgetMode::Card, Scale::new(1.0, 100), font);
+        assert!((metrics.font_size - 21.25).abs() < 0.001);
+        assert!((metrics.baseline_offset - 0.68).abs() < 0.001);
+        assert!((metrics.line_height - 17.0 * 1.4).abs() < 0.001);
+    }
+
+    #[test]
     fn user_scale_compounds_with_monitor_scale() {
-        let metrics = compute_metrics(&config(), WidgetMode::Card, Scale::new(1.5, 150));
+        let metrics = compute_metrics(
+            &config(),
+            WidgetMode::Card,
+            Scale::new(1.5, 150),
+            FontMetrics::default(),
+        );
         assert!((metrics.scale - 2.25).abs() < 0.001);
         assert!(metrics.window_w > 800);
     }
 
     #[test]
     fn modes_have_distinct_layouts() {
-        let card = compute_metrics(&config(), WidgetMode::Card, Scale::new(1.0, 100));
-        let lyrics = compute_metrics(&config(), WidgetMode::Lyrics, Scale::new(1.0, 100));
-        let island = compute_metrics(&config(), WidgetMode::Island, Scale::new(1.0, 100));
+        let card = compute_metrics(
+            &config(),
+            WidgetMode::Card,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
+        let lyrics = compute_metrics(
+            &config(),
+            WidgetMode::Lyrics,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
+        let island = compute_metrics(
+            &config(),
+            WidgetMode::Island,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
         assert!(card.window_h > lyrics.window_h);
         assert!(lyrics.lyric_w > 300.0);
         assert!(island.art_size > 0.0);
@@ -1559,6 +1735,59 @@ mod tests {
                 assert!(values.iter().all(|index| *index < count));
             }
         }
+    }
+
+    #[test]
+    fn stock_fonts_shape_different_lines() {
+        use iceberg_core::fonts::{stock_font_dir, FontLibrary};
+
+        let user_dir = std::env::temp_dir().join("iceberg-render-font-test");
+        let mut library = FontLibrary::new(stock_font_dir(), user_dir);
+        let mut renderer = Renderer::new();
+        let mut widths = Vec::new();
+        for family in ["Lato", "Poppins", "Abril Fatface", "Space Mono"] {
+            let entry = library.resolve(family).expect("stock font");
+            let family_name = entry.info.family.clone();
+            let config = config();
+            let playback = Playback::default();
+            let content = Content::Empty;
+            let view = View {
+                config: &config,
+                mode: WidgetMode::Card,
+                track: None,
+                playback: &playback,
+                lyrics: None,
+                content: &content,
+                art: None,
+                current_index: None,
+                transition: None,
+                now_ms: 0,
+                scale: Scale::new(1.0, 100),
+                font_family: &family_name,
+                font_metrics: entry.metrics,
+                font_entry: Some(&entry),
+            };
+            renderer.ensure_size(&view);
+            assert!(
+                renderer.loaded_faces.len() <= 2,
+                "old font faces were not unloaded for {family}"
+            );
+            let mask = renderer.rasterize_text(
+                "Midnight City",
+                &family_name,
+                view.metrics().font_size as f32,
+                500,
+                0.0,
+                Rgba::new(255, 255, 255, 255),
+                500.0,
+                1,
+            );
+            widths.push(mask.width);
+        }
+        assert!(
+            widths.windows(2).any(|pair| pair[0] != pair[1]),
+            "stock fonts rendered identical widths: {widths:?}"
+        );
     }
 
     #[test]
@@ -1645,6 +1874,9 @@ mod tests {
             transition: None,
             now_ms: 5_000,
             scale: Scale::new(1.0, 100),
+            font_family: "Segoe UI",
+            font_metrics: FontMetrics::default(),
+            font_entry: None,
         };
         let mut renderer = Renderer::new();
         assert!(renderer.ensure_size(&view));
@@ -1708,6 +1940,9 @@ mod tests {
             }),
             now_ms: 100,
             scale: Scale::new(1.0, 100),
+            font_family: "Segoe UI",
+            font_metrics: FontMetrics::default(),
+            font_entry: None,
         };
         renderer.ensure_size(&view);
         renderer.rebuild_background(&view);

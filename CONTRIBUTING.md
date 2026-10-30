@@ -2,9 +2,9 @@
 
 Thanks for helping. Iceberg is intentionally small and fast; please keep changes focused.
 
-## Native widget workspace (current)
+## Current workspace
 
-The rebuild lives in `app/core` (shared media, lyrics, config, fonts, presets) and `app/widget` (the native overlay). Only Rust is required for this part.
+The native rebuild lives in `app/core` (shared media, lyrics, config, fonts, presets, IPC schema) and `app/widget` (the native overlay). Only Rust is required for this part.
 
 ```powershell
 cd app
@@ -14,72 +14,53 @@ cargo test --workspace
 cargo build --release -p iceberg-widget
 ```
 
-The Tauri/WebView2 prototype in `app/src-tauri` is kept for reference until the new settings app replaces it and is excluded from the workspace. The setup and PR checklist below describe that prototype; the native widget's measurements are in [docs/phase-a/RESULTS.md](docs/phase-a/RESULTS.md).
+Run the widget with the demo track, render review screenshots, or run the transition benchmark:
+
+```powershell
+cargo run -p iceberg-widget -- --demo
+cargo run -p iceberg-widget -- --screenshot=../docs/phase-b
+cargo run -p iceberg-widget -- --bench=../docs/phase-b/bench-100.json --scale=100
+```
+
+The Tauri/WebView2 prototype in `app/src-tauri` is kept for reference until the settings app replaces it and is excluded from the workspace. Do not add new features to the prototype.
 
 ## Prerequisites
 
 - Windows 10/11 x64
 - Rust stable (1.90 or newer)
-- Node.js LTS and npm (Tauri prototype only)
-- Microsoft Edge WebView2 Runtime (included with Windows 11, Tauri prototype only)
+- Node.js LTS and npm only when working on the old prototype
 
-## Setup
+## Fonts
 
-```powershell
-cd app
-npm ci
-npm run tauri dev
-```
+The stock families and their OFL licenses live in `app/assets/fonts`. New stock fonts need:
 
-Production build:
+- an OFL-compatible license file next to the font;
+- a build with Regular and, where available, Bold;
+- an entry in `STOCK_FONTS` in `app/core/src/fonts.rs`;
+- a 100% preview in `docs/phase-b` when typography changes.
 
-```powershell
-cd app
-npm run tauri build
-```
-
-The installer is under `app/src-tauri/target/release/bundle/nsis/`.
-
-## Before opening a pull request
-
-Run all of these from `app` unless noted:
-
-```powershell
-npm run check
-npm run build
-cd src-tauri
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-There is also an ignored live LRCLIB test:
-
-```powershell
-cargo test lrclib_roundtrip -- --ignored
-```
-
-Use it when you touch the network or parser code.
+Do not commit user-imported font files, font collections, or fonts with a copyleft license. Validate every font at the boundary; the core rejects empty, oversized, and unreadable files.
 
 ## Performance budget
 
-Iceberg has hard targets. Measure before and after changing window, WebView2, cache, or animation code.
+These are hard targets for the native widget. Measure before and after changing layout, rendering, timers, fonts, or window code.
 
 | State | Budget |
 | --- | --- |
-| Tray only | under 15 MB private working set |
-| Visible and playing | under 70 MB |
-| Hidden or paused | under 30 MB |
-| CPU while lyrics show | under 1% |
+| Tray only, no window | under 10 MB working set |
+| Widget visible and playing | under 40 MB working set with software rendering |
+| Idle or paused | 0% CPU |
+| During a lyric transition | under 3% CPU |
 | Installer | under 8 MB |
+| Executable | under 5 MB |
 
-Measure the whole process tree (`iceberg.exe` and every WebView2 child), not just the main process. The README documents the current method and numbers.
+CPU is measured for the whole process tree. Report the surface size, scale, working set, private bytes, and transition/idle CPU. Use the bundled benchmark and the same 12 x 200 ms transitions when comparing changes. The widget must not create a continuous render loop; text transitions redraw only the text layer, and the static background layer rebuilds only on a real layout, art, or wallpaper change.
 
 Do not add:
 
-- Polling loops or per-frame JavaScript
-- Continuous CSS animations
-- Remote web content, web fonts, UI kits, icon packs, or React
+- Polling loops or per-frame timers when idle, paused, or hidden
+- Continuous animation loops
+- WebView2, remote content, UI kits, icon packs, or web fonts to the widget
 - Per-frame progress updates
 - Dependencies with heavy trees, copyleft licenses, or new network hosts
 - Telemetry, analytics, or crash reporting
@@ -88,11 +69,11 @@ If a feature cannot fit the budget, make it opt-in and say so, or leave it out.
 
 ## Code style
 
-- Follow the existing Rust and Svelte style.
-- Comment non-obvious *why*, not *what*. Avoid dead code and commented-out blocks.
-- Keep the frontend tiny. Svelte + Vite only; system fonts only.
+- Follow the existing Rust style and keep the frontend small.
+- Comment non-obvious *why*, not *what*. No dead code or commented-out blocks.
 - Use `// SAFETY:` comments for every unavoidable Windows `unsafe` block.
 - Validate config and untrusted data at the boundary.
+- Keep window styles explicit and verify them read back; do not rely on framework defaults.
 - One logical change per pull request.
 
 ## Commit messages
@@ -102,8 +83,8 @@ Write them like a person, not a template. Short, lowercase, no emoji, no trailin
 Good:
 
 - `fix lyrics drifting after seeking`
-- `stop rebuilding the tray menu on every color change`
-- `add portable mode`
+- `keep the card size stable across fonts`
+- `add stock font metrics`
 
 Bad:
 
@@ -118,23 +99,19 @@ Do not add tool attribution, co-author trailers, or "generated with" footers to 
 - What changed and why
 - How it was tested (players used, Windows version)
 - Memory/CPU numbers if behavior or rendering changed
-- `cargo fmt --check`, clippy, tests, frontend check/build all pass
+- `cargo fmt --all --check`, clippy, tests all pass
 - `CHANGELOG.md` updated for user-visible changes
 - No new telemetry or network hosts
+- No secrets, user font files, build output, or `site/` files staged
 
 ## Layout
 
 ```
-app/src/               widget and settings UI
-app/src-tauri/src/     Rust backend
-  smtc.rs              Windows media session events
-  lyrics.rs            LRCLIB client, LRC parser, manual lyrics
-  cache.rs             disk caches and eviction
-  window.rs            create/show/hide/suspend/destroy, positions
-  tray.rs              tray icon and menu
-  hotkeys.rs           global shortcuts
-  perf.rs              EcoQoS, working-set trims, diagnostics
-  config.rs            config, validation, themes
+app/core/              shared config, SMTC, LRCLIB, cache, fonts, presets, IPC
+app/widget/            native window, renderer, tray, diagnostics
+app/assets/fonts/      bundled OFL fonts and licenses
+app/src-tauri/         previous Tauri prototype (reference only)
+docs/                  design notes, decisions, phase screenshots and measurements
 ```
 
 `site/` is a local-only promotional site and is not part of the published app.

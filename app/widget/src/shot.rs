@@ -1,103 +1,165 @@
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 use iceberg_core::config::{Config, WidgetMode};
+use iceberg_core::fonts::{stock_font_dir, FontEntry, FontLibrary, FontMetrics, STOCK_FONTS};
+use iceberg_core::model::{Lyrics, Playback, Track};
+use iceberg_core::paths::Paths;
 
 use crate::demo;
 use crate::dpi::Scale;
 use crate::render::{Content, Renderer, View};
 
+struct SceneFont {
+    family: String,
+    metrics: FontMetrics,
+    entry: Option<Arc<FontEntry>>,
+}
+
+impl SceneFont {
+    fn resolve(library: &mut FontLibrary, config: &Config, track: Option<&Track>) -> Self {
+        let requested = track
+            .map(|track| config.font_for(&track.key))
+            .unwrap_or_else(|| config.typography.font_family.clone());
+        let entry = library
+            .resolve(&requested)
+            .or_else(|| library.resolve("Lato"));
+        Self {
+            family: entry
+                .as_ref()
+                .map(|entry| entry.info.family.clone())
+                .unwrap_or_else(|| "Lato".to_string()),
+            metrics: entry
+                .as_ref()
+                .map(|entry| entry.metrics)
+                .unwrap_or_default(),
+            entry,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scene_view<'a>(
+    config: &'a Config,
+    font: &'a SceneFont,
+    mode: WidgetMode,
+    track: Option<&'a Track>,
+    playback: &'a Playback,
+    lyrics: Option<&'a Lyrics>,
+    content: &'a Content,
+    current_index: Option<usize>,
+    now_ms: i64,
+    scale: Scale,
+) -> View<'a> {
+    View {
+        config,
+        mode,
+        track,
+        playback,
+        lyrics,
+        content,
+        art: None,
+        current_index,
+        transition: None,
+        now_ms,
+        scale,
+        font_family: &font.family,
+        font_metrics: font.metrics,
+        font_entry: font.entry.as_deref(),
+    }
+}
+
 pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), String> {
     std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let effective = config.effective();
+    let paths = Paths::resolve();
+    let mut library = FontLibrary::new(stock_font_dir(), paths.fonts);
     let mut renderer = Renderer::new();
 
     let card = demo::track();
     let card_lyrics = demo::lyrics();
     let card_playback = demo::playback();
     let synced = Content::Synced;
+    let font = SceneFont::resolve(&mut library, &effective, Some(&card));
+
     for (name, scale) in [
         ("card-100.png", Scale::new(1.0, 100)),
         ("card-150.png", Scale::new(1.5, 100)),
         ("card-200.png", Scale::new(2.0, 100)),
     ] {
-        let view = View {
-            config: &effective,
-            mode: WidgetMode::Card,
-            track: Some(&card),
-            playback: &card_playback,
-            lyrics: Some(&card_lyrics),
-            content: &synced,
-            art: None,
-            current_index: Some(2),
-            transition: None,
-            now_ms: 74_000,
+        let view = scene_view(
+            &effective,
+            &font,
+            WidgetMode::Card,
+            Some(&card),
+            &card_playback,
+            Some(&card_lyrics),
+            &synced,
+            Some(2),
+            74_000,
             scale,
-        };
+        );
         render_scene(&mut renderer, &view, &directory.join(name))?;
     }
 
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Lyrics,
-        track: Some(&card),
-        playback: &card_playback,
-        lyrics: Some(&card_lyrics),
-        content: &synced,
-        art: None,
-        current_index: Some(2),
-        transition: None,
-        now_ms: 74_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Lyrics,
+        Some(&card),
+        &card_playback,
+        Some(&card_lyrics),
+        &synced,
+        Some(2),
+        74_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(&mut renderer, &view, &directory.join("lyrics-100.png"))?;
 
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Island,
-        track: Some(&card),
-        playback: &card_playback,
-        lyrics: Some(&card_lyrics),
-        content: &synced,
-        art: None,
-        current_index: Some(2),
-        transition: None,
-        now_ms: 74_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Island,
+        Some(&card),
+        &card_playback,
+        Some(&card_lyrics),
+        &synced,
+        Some(2),
+        74_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(&mut renderer, &view, &directory.join("island-100.png"))?;
 
     let empty_playback = iceberg_core::Playback::default();
     let empty = Content::Empty;
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Card,
-        track: None,
-        playback: &empty_playback,
-        lyrics: None,
-        content: &empty,
-        art: None,
-        current_index: None,
-        transition: None,
-        now_ms: 0,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Card,
+        None,
+        &empty_playback,
+        None,
+        &empty,
+        None,
+        0,
+        Scale::new(1.0, 100),
+    );
     render_scene(&mut renderer, &view, &directory.join("state-empty-100.png"))?;
 
     let loading = Content::Loading;
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Card,
-        track: Some(&card),
-        playback: &card_playback,
-        lyrics: None,
-        content: &loading,
-        art: None,
-        current_index: None,
-        transition: None,
-        now_ms: 74_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Card,
+        Some(&card),
+        &card_playback,
+        None,
+        &loading,
+        None,
+        74_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(
         &mut renderer,
         &view,
@@ -105,19 +167,18 @@ pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), Strin
     )?;
 
     let no_lyrics = Content::NoLyrics;
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Card,
-        track: Some(&card),
-        playback: &card_playback,
-        lyrics: None,
-        content: &no_lyrics,
-        art: None,
-        current_index: None,
-        transition: None,
-        now_ms: 74_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Card,
+        Some(&card),
+        &card_playback,
+        None,
+        &no_lyrics,
+        None,
+        74_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(
         &mut renderer,
         &view,
@@ -125,19 +186,18 @@ pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), Strin
     )?;
 
     let instrumental = Content::Instrumental;
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Card,
-        track: Some(&card),
-        playback: &card_playback,
-        lyrics: None,
-        content: &instrumental,
-        art: None,
-        current_index: None,
-        transition: None,
-        now_ms: 74_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Card,
+        Some(&card),
+        &card_playback,
+        None,
+        &instrumental,
+        None,
+        74_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(
         &mut renderer,
         &view,
@@ -146,19 +206,18 @@ pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), Strin
 
     let plain_lyrics = demo::plain_lyrics();
     let plain = Content::Plain;
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Card,
-        track: Some(&card),
-        playback: &card_playback,
-        lyrics: Some(&plain_lyrics),
-        content: &plain,
-        art: None,
-        current_index: None,
-        transition: None,
-        now_ms: 74_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Card,
+        Some(&card),
+        &card_playback,
+        Some(&plain_lyrics),
+        &plain,
+        None,
+        74_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(
         &mut renderer,
         &view,
@@ -168,32 +227,61 @@ pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), Strin
     let arabic_track = demo::arabic_track();
     let arabic_lyrics = demo::arabic_lyrics();
     let arabic_playback = demo::arabic_playback();
-    let view = View {
-        config: &effective,
-        mode: WidgetMode::Card,
-        track: Some(&arabic_track),
-        playback: &arabic_playback,
-        lyrics: Some(&arabic_lyrics),
-        content: &synced,
-        art: None,
-        current_index: Some(1),
-        transition: None,
-        now_ms: 4_000,
-        scale: Scale::new(1.0, 100),
-    };
+    let view = scene_view(
+        &effective,
+        &font,
+        WidgetMode::Card,
+        Some(&arabic_track),
+        &arabic_playback,
+        Some(&arabic_lyrics),
+        &synced,
+        Some(1),
+        4_000,
+        Scale::new(1.0, 100),
+    );
     render_scene(&mut renderer, &view, &directory.join("card-arabic-100.png"))?;
+
+    for stock in STOCK_FONTS {
+        let mut preview = effective.clone();
+        preview.per_song.clear();
+        preview.typography.font_family = stock.family.to_string();
+        let font = SceneFont::resolve(&mut library, &preview, Some(&card));
+        let view = scene_view(
+            &preview,
+            &font,
+            WidgetMode::Card,
+            Some(&card),
+            &card_playback,
+            Some(&card_lyrics),
+            &synced,
+            Some(2),
+            74_000,
+            Scale::new(1.0, 100),
+        );
+        render_scene(
+            &mut renderer,
+            &view,
+            &directory.join(format!("font-{}-100.png", stock.id)),
+        )?;
+    }
 
     std::fs::write(
         directory.join("README.md"),
-        "# Phase A renderer previews\n\n\
-         Generated by `cargo run -p iceberg-widget -- --screenshot=../docs/phase-a` from `app`.\n\n\
+        "# Phase B typography previews\n\n\
+         Generated by `cargo run -p iceberg-widget -- --screenshot=../docs/phase-b` from `app`.\n\n\
          These are offscreen renders over a neutral review backdrop, not a design sign-off.\n\
          The real widget is a transparent layered window on the desktop.\n\n\
          - `card-100.png`, `card-150.png`, `card-200.png`: Card mode at 100, 150 and 200% scale\n\
          - `lyrics-100.png`, `island-100.png`: the other two modes\n\
          - `state-*.png`: empty, loading, no lyrics, instrumental, unsynced\n\
-         - `card-arabic-100.png`: Arabic shaping and RTL\n\
-         - `bench-*.json`: release measurements at each scale\n",
+         - `card-arabic-100.png`: Arabic shaping and RTL with the normal system fallback\n\
+         - `font-*-100.png`: the same Card at 100% with each stock family, using normalized metrics\n\
+         - `bench-*.json`: release measurements at each scale\n\n\
+         Every Card preview stays 388 x 245 at 100%: optical size and baseline are normalized,\n\
+         while line spacing stays on the user's line-height grid. See `RESULTS.md` for numbers.\n\n\
+         Stock families: Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC,\n\
+         Space Mono, Varela Round, Lobster. All are OFL 1.1; licenses are in\n\
+         `app/assets/fonts/<family>/OFL.txt`.\n",
     )
     .map_err(|error| error.to_string())?;
     Ok(())

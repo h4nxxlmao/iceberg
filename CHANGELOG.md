@@ -9,6 +9,25 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Native widget workspace (`app/core`, `app/widget`) with per-monitor DPI v2, exact tool-window styles, event-driven SMTC, LRCLIB enhanced word timings, font metric normalization, six presets, cached background and lyric layers, and a lazy tray-only mode.
 - Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).
 - Phase A review screenshots and release measurements in [docs/phase-a/](docs/phase-a/).
+- Eight bundled OFL font families (Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC, Space Mono, Varela Round, Lobster) with lazy per-family loading and licenses in `app/assets/fonts`.
+- Lazy `FontLibrary` resolution for stock and user fonts, cap-height optical scaling, baseline normalization, per-track font selection, synthetic bold above 600 when a family has no bold face, and synthetic italic.
+- Config v2 migration from the previous system-font defaults to the stock set.
+- Fade transitions that hold the target line grid, alongside slide and off.
+- Phase B typography previews and release measurements in [docs/phase-b/RESULTS.md](docs/phase-b/RESULTS.md).
+
+### Changed
+
+- The default widget font is now Lato instead of Segoe UI Variable Display. Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
+- The Paper preset uses Abril Fatface and Quiet uses Space Mono.
+- Text masks are composited with their premultiplied alpha, fixing thin antialiased edges.
+
+### Fixed
+
+- Font name-table lookup now keeps scanning records when the first matching record cannot be decoded, so Lato and other stock fonts resolve their family names correctly.
+
+### Performance
+
+- Phase B release measurements (median of three) at 100/150/200%: 5.39/8.08/12.93% of one core during 12 cached-text transitions (0.34/0.51/0.81% of total CPU), 20.6/23.2/26.8 MB working set, 6.9/9.1/12.0 MB private. Idle CPU is 0% at 100/150%; two 200% samples read 0.78% of one core. Release executable 3.20 MiB plus 2.85 MiB of font assets; background rebuilds during transitions remain 0.
 
 ### Changed (previous Tauri prototype)
 

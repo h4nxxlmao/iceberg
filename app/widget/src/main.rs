@@ -52,7 +52,7 @@ fn parse_args(args: &[String]) -> Result<app::Options, String> {
         match arg.as_str() {
             "--demo" => options.demo = true,
             "--click-through" => options.click_through = Some(true),
-            "--screenshot" => options.screenshot = Some(PathBuf::from("docs/phase-a")),
+            "--screenshot" => options.screenshot = Some(PathBuf::from("docs/phase-b")),
             "--bench" => options.bench = Some(PathBuf::from("bench.json")),
             "-h" | "--help" => {
                 println!("{USAGE}");

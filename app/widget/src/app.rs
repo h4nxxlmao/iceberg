@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use iceberg_core::config::{Anchor, Config, TransitionStyle, WidgetMode};
+use iceberg_core::fonts::{stock_font_dir, FontEntry, FontLibrary};
 use iceberg_core::lyrics::LyricsService;
 use iceberg_core::media::{MediaEvent, MediaWatcher};
 use iceberg_core::model::{Lyrics, LyricsKind, Playback, PlaybackStatus, Track};
@@ -135,6 +136,10 @@ pub struct App {
     surface: Option<LayeredSurface>,
     hwnd: Option<HWND>,
     renderer: Option<Renderer>,
+    font_library: FontLibrary,
+    font_entry: Option<Arc<FontEntry>>,
+    font_family: String,
+    font_request: String,
     scale: Scale,
     monitor_name: String,
     style: Option<StyleReport>,
@@ -169,6 +174,7 @@ impl App {
     ) -> Self {
         let shared = Arc::new(Mutex::new(config.clone()));
         let quit_at = options.quit_after.map(|delay| Instant::now() + delay);
+        let font_library = FontLibrary::new(stock_font_dir(), paths.fonts.clone());
         Self {
             options,
             config,
@@ -179,6 +185,10 @@ impl App {
             surface: None,
             hwnd: None,
             renderer: None,
+            font_library,
+            font_entry: None,
+            font_family: "Lato".to_string(),
+            font_request: String::new(),
             scale: Scale::new(1.0, 100),
             monitor_name: String::new(),
             style: None,
@@ -209,6 +219,35 @@ impl App {
         self.config.effective()
     }
 
+    fn resolve_active_font(&mut self, effective: &Config) -> Option<Arc<FontEntry>> {
+        let requested = self
+            .track
+            .as_ref()
+            .map(|track| effective.font_for(&track.key))
+            .unwrap_or_else(|| effective.typography.font_family.clone());
+        if requested != self.font_request {
+            self.font_request = requested;
+            let entry = self
+                .font_library
+                .resolve(&self.font_request)
+                .or_else(|| self.font_library.resolve("Lato"));
+            self.font_family = entry
+                .as_ref()
+                .map(|entry| entry.info.family.clone())
+                .unwrap_or_else(|| "Lato".to_string());
+            self.font_entry = entry;
+            self.background_dirty = true;
+            self.text_dirty = true;
+        }
+        self.font_entry.clone()
+    }
+
+    fn font_metrics(&mut self, effective: &Config) -> iceberg_core::fonts::FontMetrics {
+        self.resolve_active_font(effective)
+            .map(|entry| entry.metrics)
+            .unwrap_or_default()
+    }
+
     fn ensure_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
         if self.window.is_some() {
             return Ok(());
@@ -221,7 +260,8 @@ impl App {
                 .unwrap_or(1.0)
         });
         self.scale = Scale::new(os_scale, effective.layout.scale);
-        let metrics = compute_metrics(&effective, effective.mode, self.scale);
+        let font_metrics = self.font_metrics(&effective);
+        let metrics = compute_metrics(&effective, effective.mode, self.scale, font_metrics);
         let attributes = Window::default_attributes()
             .with_title("Iceberg")
             .with_inner_size(PhysicalSize::new(
@@ -291,6 +331,10 @@ impl App {
         self.next_line = None;
         self.next_progress = None;
         self.renderer = None;
+        self.font_entry = None;
+        self.font_library.clear();
+        self.font_request.clear();
+        self.font_family = "Lato".to_string();
         self.trim_at = Some(Instant::now() + Duration::from_millis(300));
     }
 
@@ -322,6 +366,8 @@ impl App {
         self.transition = None;
         self.background_dirty = true;
         self.text_dirty = true;
+        let effective = self.effective();
+        self.resolve_active_font(&effective);
         self.update_timers();
     }
 
@@ -338,6 +384,8 @@ impl App {
         self.background_dirty = true;
         self.text_dirty = true;
         self.fetching_key = None;
+        let effective = self.effective();
+        self.resolve_active_font(&effective);
         self.start_lyrics_fetch(&track);
         self.recompute_index(false);
         self.update_timers();
@@ -486,11 +534,12 @@ impl App {
         {
             return;
         }
-        let metrics = self
-            .renderer
+        let font_metrics = self
+            .font_entry
             .as_ref()
-            .and_then(|renderer| renderer.metrics.clone())
-            .unwrap_or_else(|| compute_metrics(&effective, effective.mode, self.scale));
+            .map(|entry| entry.metrics)
+            .unwrap_or_default();
+        let metrics = compute_metrics(&effective, effective.mode, self.scale, font_metrics);
         let bar = metrics.progress_w.max(1.0);
         let position = self
             .playback
@@ -508,7 +557,12 @@ impl App {
         if self.window.is_none() {
             return;
         }
-        let metrics = compute_metrics(&effective, effective.mode, self.scale);
+        let font_entry = self.resolve_active_font(&effective);
+        let font_metrics = font_entry
+            .as_ref()
+            .map(|entry| entry.metrics)
+            .unwrap_or_default();
+        let metrics = compute_metrics(&effective, effective.mode, self.scale, font_metrics);
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
@@ -543,6 +597,9 @@ impl App {
             transition: self.transition,
             now_ms: now_ms(),
             scale: self.scale,
+            font_family: &self.font_family,
+            font_metrics,
+            font_entry: font_entry.as_deref(),
         };
         renderer.ensure_size(&view);
         if self.background_dirty {
@@ -597,6 +654,10 @@ impl App {
                 self.fetching_key = None;
                 self.background_dirty = true;
                 self.text_dirty = true;
+                if self.window.is_some() && (self.options.demo || self.options.bench.is_some()) {
+                    let effective = self.effective();
+                    self.resolve_active_font(&effective);
+                }
                 self.update_timers();
                 if !self.options.demo && self.options.bench.is_none() {
                     self.destroy_window();
