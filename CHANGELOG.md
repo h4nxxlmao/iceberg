@@ -58,6 +58,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - The settings window no longer shows two vertical scrollbars. The layout owns the viewport and the sheet is the only scroll container.
 - Source changes re-query the current SMTC session immediately instead of waiting for the next media event.
 - A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
+- LRCLIB 503 and 429 responses are retried with backoff. If a lyric request still fails, the widget retries automatically at 10 s, 30 s, and 60 s instead of showing a permanent “Lyrics unavailable” state. Settings now shows the real reason, such as “LRCLIB is busy”.
 
 ### Performance
 

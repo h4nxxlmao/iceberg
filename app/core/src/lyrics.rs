@@ -122,18 +122,26 @@ impl LyricsService {
                 cache::write_lyrics(&self.cache_dir, &track.key, None, true);
                 lyrics
             }
-            Err(error) => Lyrics {
-                track_key: track.key.clone(),
-                kind: LyricsKind::Error,
-                lines: Vec::new(),
-                plain: String::new(),
-                source: "lrclib".to_string(),
-                message: if error.to_lowercase().contains("network") {
-                    "Offline or LRCLIB unreachable".to_string()
+            Err(error) => {
+                let message = if error.contains("503")
+                    || error.contains("429")
+                    || error.to_lowercase().contains("busy")
+                {
+                    "LRCLIB is busy".to_string()
+                } else if error.to_lowercase().contains("network") {
+                    "Can't reach LRCLIB".to_string()
                 } else {
-                    "Lyrics unavailable".to_string()
-                },
-            },
+                    error
+                };
+                Lyrics {
+                    track_key: track.key.clone(),
+                    kind: LyricsKind::Error,
+                    lines: Vec::new(),
+                    plain: String::new(),
+                    source: "lrclib".to_string(),
+                    message,
+                }
+            }
         }
     }
 
@@ -207,7 +215,7 @@ impl LyricsService {
         query: &[(String, String)],
     ) -> Result<Option<T>, String> {
         let mut last_error = String::new();
-        for attempt in 0..2 {
+        for attempt in 0..4 {
             let mut request = self.agent().get(url);
             for (key, value) in query {
                 request = request.query(key, value);
@@ -220,7 +228,7 @@ impl LyricsService {
                         .map_err(|error| format!("Bad response: {error}"));
                 }
                 Err(ureq::Error::Status(404, _)) => return Ok(None),
-                Err(ureq::Error::Status(code, _)) if code >= 500 => {
+                Err(ureq::Error::Status(code, _)) if code == 429 || code >= 500 => {
                     last_error = format!("LRCLIB returned {code}");
                 }
                 Err(ureq::Error::Status(code, _)) => {
@@ -230,8 +238,8 @@ impl LyricsService {
                     last_error = format!("Network error: {error}");
                 }
             }
-            if attempt == 0 {
-                thread::sleep(Duration::from_millis(350));
+            if attempt < 3 {
+                thread::sleep(Duration::from_millis(500 * (1u64 << attempt)));
             }
         }
         Err(last_error)

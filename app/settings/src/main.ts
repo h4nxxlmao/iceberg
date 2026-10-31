@@ -504,7 +504,7 @@ function updateStatus(): void {
     (state.status.lyrics_status === "loading"
       ? "Looking up lyrics"
       : state.status.lyrics_status === "error"
-        ? "Lyrics unavailable"
+        ? state.status.lyrics_message?.trim() || "Lyrics unavailable"
         : state.status.lyrics_status === "not_found"
           ? "No lyrics found"
           : state.status.lyrics_status === "plain"
@@ -964,7 +964,7 @@ function renderLyrics(config: Config): string {
     }
     ${group(
       "Lyrics lookup",
-      "",
+      state.status.lyrics_message ?? "",
       `<div class="inline-actions">
         <span class="inline-note">${state.status.line ? escapeHtml(state.status.line) : "No current lyric line"}</span>
         <button class="button secondary small" id="retry-lyrics" type="button">Look up again</button>

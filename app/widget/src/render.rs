@@ -926,13 +926,15 @@ impl Renderer {
                 );
             }
             Content::Error(message) => {
-                self.draw_state(
-                    view,
-                    metrics,
-                    message,
-                    Some("Check the connection or try again"),
-                    1.0,
-                );
+                let lower = message.to_lowercase();
+                let sub =
+                    if lower.contains("busy") || lower.contains("retry") || lower.contains("reach")
+                    {
+                        "Retrying automatically"
+                    } else {
+                        "Check the connection or try again"
+                    };
+                self.draw_state(view, metrics, message, Some(sub), 1.0);
             }
             Content::Empty => {
                 self.draw_state(

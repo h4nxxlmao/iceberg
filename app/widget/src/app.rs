@@ -222,6 +222,8 @@ pub struct App {
     quit_at: Option<Instant>,
     trim_at: Option<Instant>,
     fetching_key: Option<String>,
+    lyrics_retry_at: Option<Instant>,
+    lyrics_retry_count: u8,
     bench: Option<BenchState>,
 }
 
@@ -300,6 +302,8 @@ impl App {
             quit_at,
             trim_at: None,
             fetching_key: None,
+            lyrics_retry_at: None,
+            lyrics_retry_count: 0,
             bench: None,
         }
     }
@@ -553,6 +557,8 @@ impl App {
         self.current_index = None;
         self.transition = None;
         self.transition_end = None;
+        self.lyrics_retry_at = None;
+        self.lyrics_retry_count = 0;
         self.text_dirty = true;
         self.start_lyrics_fetch(&track, true);
         self.update_timers();
@@ -1107,6 +1113,8 @@ impl App {
         self.transition = None;
         self.transition_end = None;
         self.art = None;
+        self.lyrics_retry_at = None;
+        self.lyrics_retry_count = 0;
         self.cover_retry_count = 0;
         self.cover_retry_at = if track.cover_png.is_none() {
             Some(Instant::now() + Duration::from_millis(900))
@@ -1163,6 +1171,22 @@ impl App {
             LyricsKind::None => Content::NoLyrics,
             LyricsKind::Error => Content::Error(lyrics.message.clone()),
         };
+        if lyrics.kind == LyricsKind::Error {
+            if self.lyrics_retry_count < 3 {
+                let delay = match self.lyrics_retry_count {
+                    0 => 10,
+                    1 => 30,
+                    _ => 60,
+                };
+                self.lyrics_retry_count += 1;
+                self.lyrics_retry_at = Some(Instant::now() + Duration::from_secs(delay));
+            } else {
+                self.lyrics_retry_at = None;
+            }
+        } else {
+            self.lyrics_retry_count = 0;
+            self.lyrics_retry_at = None;
+        }
         self.lyrics = Some(lyrics);
         self.current_index = None;
         self.transition = None;
@@ -2009,6 +2033,23 @@ impl ApplicationHandler<AppEvent> for App {
                         media.request_track();
                     }
                     self.cover_retry_at = Some(now + Duration::from_millis(1000));
+                }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
+        if let Some(deadline) = self.lyrics_retry_at {
+            if now >= deadline {
+                self.lyrics_retry_at = None;
+                if let Some(track) = self.track.clone() {
+                    self.fetching_key = None;
+                    self.content = Content::Loading;
+                    self.text_dirty = true;
+                    self.start_lyrics_fetch(&track, true);
+                    self.update_status();
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             } else {
                 next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
