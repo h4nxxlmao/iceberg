@@ -322,6 +322,29 @@ impl App {
         self.config.effective()
     }
 
+    fn begin_config_fade(&mut self) {
+        let effective = self.effective();
+        if effective.behavior.reduce_motion || effective.behavior.battery_saver {
+            return;
+        }
+        let duration =
+            Duration::from_millis(self.config.behavior.config_transition_ms.max(1) as u64);
+        if let Some(renderer) = &self.renderer {
+            if let Some(metrics) = &renderer.metrics {
+                let frame = renderer.frame();
+                if !frame.is_empty() {
+                    self.config_fade = Some(ConfigFade {
+                        old: frame.to_vec(),
+                        width: metrics.window_w.max(1) as usize,
+                        height: metrics.window_h.max(1) as usize,
+                        started: Instant::now(),
+                        duration,
+                    });
+                }
+            }
+        }
+    }
+
     fn resolve_active_font(&mut self, effective: &Config) -> Option<Arc<FontEntry>> {
         let requested = self
             .track
@@ -444,21 +467,8 @@ impl App {
         }
         let background_changed = background_visuals_changed(&effective, &previous_effective);
         let text_changed = text_visuals_changed(&effective, &previous_effective);
-        if (background_changed || text_changed) && self.renderer.is_some() {
-            if let Some(renderer) = &self.renderer {
-                if let Some(metrics) = &renderer.metrics {
-                    let frame = renderer.frame();
-                    if !frame.is_empty() {
-                        self.config_fade = Some(ConfigFade {
-                            old: frame.to_vec(),
-                            width: metrics.window_w.max(1) as usize,
-                            height: metrics.window_h.max(1) as usize,
-                            started: Instant::now(),
-                            duration: Duration::from_millis(300),
-                        });
-                    }
-                }
-            }
+        if background_changed || text_changed {
+            self.begin_config_fade();
         }
         if background_changed {
             self.background_dirty = true;
@@ -1096,12 +1106,15 @@ impl App {
     fn on_track(&mut self, track: Track, playback: Playback) {
         self.settings_demo = false;
         self.preview_probe_at = None;
-        if self
+        let same_track = self
             .track
             .as_ref()
             .map(|current| current.key == track.key)
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        if !same_track {
+            self.begin_config_fade();
+        }
+        if same_track {
             self.playback = playback;
             let missing_cover = self
                 .track
@@ -1109,6 +1122,9 @@ impl App {
                 .map(|current| current.cover_png.is_none())
                 .unwrap_or(false);
             if missing_cover {
+                if track.cover_png.is_some() {
+                    self.begin_config_fade();
+                }
                 if let Some(cover) = track.cover_png {
                     if let Some(current) = &mut self.track {
                         current.cover_png = Some(cover);
@@ -2258,6 +2274,8 @@ fn text_visuals_changed(current: &Config, previous: &Config) -> bool {
         || a.italic != b.italic
         || a.letter_spacing != b.letter_spacing
         || a.active_color != b.active_color
+        || a.show_marker != b.show_marker
+        || a.marker_color != b.marker_color
         || a.case != b.case
         || current.per_song != previous.per_song
         || current.lyrics.wrap != previous.lyrics.wrap

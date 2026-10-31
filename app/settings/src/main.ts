@@ -57,6 +57,8 @@ interface Typography {
   case: TextCase;
   active_color: string;
   inactive_opacity: number;
+  show_marker: boolean;
+  marker_color: string;
   shadow: boolean;
   outline: boolean;
   visible_lines: number;
@@ -67,6 +69,8 @@ interface Typography {
 interface Layout {
   scale: number;
   width: number;
+  art_size: number;
+  art_radius: number;
   anchor: Anchor;
   offset_x: number;
   offset_y: number;
@@ -92,6 +96,7 @@ interface Behavior {
   show_progress: boolean;
   show_art: boolean;
   show_meta: boolean;
+  config_transition_ms: number;
   source: SourceMode;
   source_custom: string;
   preferred_apps: string[];
@@ -615,6 +620,9 @@ function renderSection(): void {
               : state.section === "hotkeys"
                 ? renderHotkeys(config)
                 : renderAbout();
+  content.classList.remove("content-enter");
+  void content.offsetWidth;
+  content.classList.add("content-enter");
   bindCommon();
   switch (state.section) {
     case "appearance":
@@ -869,6 +877,8 @@ function renderTypography(config: Config): string {
       "",
       [
         colorRow("type-active", "Active color", "", typography.active_color),
+        colorRow("type-marker-color", "Marker color", "", typography.marker_color),
+        checkRow("type-marker", "Show active marker", "", typography.show_marker),
         rangeRow("type-visible", "Visible lines", "", 3, 7, 1, typography.visible_lines, (value) => String(Math.round(value))),
       ].join(""),
     )}
@@ -937,6 +947,8 @@ function renderLayout(config: Config): string {
       [
         rangeRow("layout-scale", "Scale", "", 50, 200, 1, config.layout.scale, (value) => `${Math.round(value)}%`),
         rangeRow("layout-width", "Width", "", 240, 640, 1, config.layout.width, (value) => `${Math.round(value)} px`),
+        rangeRow("layout-art-size", "Album art size", "", 24, 72, 1, config.layout.art_size, (value) => `${Math.round(value)} px`),
+        rangeRow("layout-art-radius", "Artwork rounding", "", 0, 16, 1, config.layout.art_radius, (value) => `${Math.round(value)} px`),
       ].join(""),
     )}
     ${group(
@@ -1042,6 +1054,11 @@ function renderPlayback(config: Config): string {
         checkRow("behavior-click-through", "Click-through", "", behavior.click_through),
         checkRow("behavior-startup", "Start with Windows", "", behavior.start_with_windows),
       ].join(""),
+    )}
+    ${group(
+      "Motion",
+      "",
+      rangeRow("behavior-config-transition", "Change animation", "", 80, 800, 10, behavior.config_transition_ms, ms),
     )}
     <details class="advanced">
       <summary>Desktop fine tuning</summary>
@@ -1261,6 +1278,8 @@ function bindTypography(config: Config): void {
   bindColor("type-active", (value) => { config.typography.active_color = value; });
   bindRange("type-inactive", (value) => { config.typography.inactive_opacity = value; }, pct);
   bindRange("type-visible", (value) => { config.typography.visible_lines = Math.round(value); }, (value) => String(Math.round(value)));
+  bindColor("type-marker-color", (value) => { config.typography.marker_color = value; });
+  bindCheck("type-marker", (value) => { config.typography.show_marker = value; });
   bindCheck("type-shadow", (value) => { config.typography.shadow = value; });
   bindCheck("type-outline", (value) => { config.typography.outline = value; });
   bindChoice("type-transition", (value) => { config.typography.transition = value as Transition; });
@@ -1278,6 +1297,12 @@ function bindLayout(config: Config): void {
   bindRange("layout-width", (value) => {
     config.layout.width = value;
     config.layout.per_monitor = {};
+  }, (value) => `${Math.round(value)} px`);
+  bindRange("layout-art-size", (value) => {
+    config.layout.art_size = value;
+  }, (value) => `${Math.round(value)} px`);
+  bindRange("layout-art-radius", (value) => {
+    config.layout.art_radius = value;
   }, (value) => `${Math.round(value)} px`);
   for (const button of root.querySelectorAll<HTMLButtonElement>("[data-anchor]")) {
     button.addEventListener("click", () => {
@@ -1387,6 +1412,9 @@ function bindPlayback(config: Config): void {
   bindCheck("behavior-startup", (value) => { config.behavior.start_with_windows = value; });
   bindCheck("behavior-reduce-motion", (value) => { config.behavior.reduce_motion = value; });
   bindCheck("behavior-battery", (value) => { config.behavior.battery_saver = value; });
+  bindRange("behavior-config-transition", (value) => {
+    config.behavior.config_transition_ms = Math.round(value);
+  }, ms);
   bindRange("behavior-pause-hide", (value) => {
     config.behavior.pause_hide_seconds = Math.round(value);
   }, (value) => (value === 0 ? "Never" : `${Math.round(value)} s`));

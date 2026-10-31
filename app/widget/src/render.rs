@@ -242,7 +242,7 @@ pub fn compute_metrics(
     {
         WidgetMode::Card => {
             let art_size = if config.behavior.show_art {
-                44.0 * effective
+                config.layout.art_size * effective
             } else {
                 0.0
             };
@@ -271,7 +271,7 @@ pub fn compute_metrics(
         }
         WidgetMode::Island => {
             let art_size = if config.behavior.show_art {
-                28.0 * effective
+                (config.layout.art_size * 0.64).max(20.0) * effective
             } else {
                 0.0
             };
@@ -712,7 +712,7 @@ impl Renderer {
         let x = metrics.art_x;
         let y = metrics.art_y;
         let size = metrics.art_size;
-        let radius = 3.0 * metrics.scale;
+        let radius = (view.config.layout.art_radius * metrics.scale).min(size / 2.0);
         if let Some(art) = view.art {
             let scale = art.width as f64 / size;
             for py in 0..size as i32 {
@@ -1094,10 +1094,10 @@ impl Renderer {
     }
 
     fn draw_marker(&mut self, view: &View<'_>, metrics: &Metrics, before: f32) {
-        if view.mode == WidgetMode::Lyrics {
+        if view.mode == WidgetMode::Lyrics || !view.config.typography.show_marker {
             return;
         }
-        let dot_color = view.active_color().with_alpha(0.55);
+        let dot_color = Rgba::from_hex(&view.config.typography.marker_color, 0.9);
         let dot = (3.0 * metrics.scale).max(2.0);
         let y = metrics.lyric_y
             + before as f64 * metrics.line_height

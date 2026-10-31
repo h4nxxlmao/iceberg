@@ -12,6 +12,8 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Content controls for showing or hiding album art, the track and artist line, and wrapping long lyrics.
 - The lyric viewport now renders surrounding lines above and below the visible window, so an incoming line slides into place rather than appearing only after the scroll reaches it.
 - Surface, preset, font, background, and other visual config changes crossfade over 300 ms instead of snapping. Settings selection borders transition over 160 ms.
+- Active-line marker visibility and color, album artwork size and rounding, and a configurable change-animation duration.
+- Track, title, and late-arriving cover changes crossfade. Settings sections enter with a short fade/slide, controls have press states, and the live status mark breathes.
 - Force a fresh lyric lookup from Settings. It bypasses the cached not-found result and retries LRCLIB with a free-text fallback. The current line can be copied from the same panel.
 - A source label in the settings status and an explicit loading/not-found/error lyric state instead of a misleading demo line.
 - Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).

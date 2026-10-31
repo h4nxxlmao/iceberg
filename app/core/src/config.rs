@@ -153,6 +153,8 @@ pub struct Typography {
     pub case: TextCase,
     pub active_color: String,
     pub inactive_opacity: f64,
+    pub show_marker: bool,
+    pub marker_color: String,
     pub shadow: bool,
     pub outline: bool,
     pub visible_lines: u32,
@@ -165,6 +167,8 @@ pub struct Typography {
 pub struct Layout {
     pub scale: u32,
     pub width: f64,
+    pub art_size: f64,
+    pub art_radius: f64,
     pub anchor: Anchor,
     pub offset_x: i32,
     pub offset_y: i32,
@@ -202,6 +206,7 @@ pub struct Behavior {
     pub show_progress: bool,
     pub show_art: bool,
     pub show_meta: bool,
+    pub config_transition_ms: u32,
     pub source: SourceMode,
     pub source_custom: String,
     pub preferred_apps: Vec<String>,
@@ -289,6 +294,8 @@ impl Default for Typography {
             case: TextCase::Original,
             active_color: "#f1ede3".to_string(),
             inactive_opacity: 0.34,
+            show_marker: true,
+            marker_color: "#f1ede3".to_string(),
             shadow: true,
             outline: false,
             visible_lines: 5,
@@ -303,6 +310,8 @@ impl Default for Layout {
         Self {
             scale: 100,
             width: 360.0,
+            art_size: 44.0,
+            art_radius: 3.0,
             anchor: Anchor::TopCenter,
             offset_x: 0,
             offset_y: 24,
@@ -346,6 +355,7 @@ impl Default for Behavior {
             show_progress: true,
             show_art: true,
             show_meta: true,
+            config_transition_ms: 300,
             source: SourceMode::Spotify,
             source_custom: String::new(),
             preferred_apps: Vec::new(),
@@ -468,6 +478,8 @@ impl Config {
         typography.line_height = clamp_f64(typography.line_height, 1.0, 2.0);
         typography.active_color =
             sanitize_hex(&typography.active_color).unwrap_or_else(|| "#f1ede3".to_string());
+        typography.marker_color =
+            sanitize_hex(&typography.marker_color).unwrap_or_else(|| "#f1ede3".to_string());
         typography.inactive_opacity = clamp_f64(typography.inactive_opacity, 0.15, 0.85);
         typography.visible_lines = typography.visible_lines.clamp(3, 7);
         typography.transition_ms = typography.transition_ms.clamp(100, 600);
@@ -475,6 +487,8 @@ impl Config {
         let layout = &mut self.layout;
         layout.scale = layout.scale.clamp(50, 200);
         layout.width = clamp_f64(layout.width, 240.0, 640.0);
+        layout.art_size = clamp_f64(layout.art_size, 24.0, 72.0);
+        layout.art_radius = clamp_f64(layout.art_radius, 0.0, 20.0);
         layout.offset_x = layout.offset_x.clamp(-10_000, 10_000);
         layout.offset_y = layout.offset_y.clamp(-10_000, 10_000);
         layout.per_monitor.retain(|name, monitor| {
@@ -490,6 +504,7 @@ impl Config {
 
         self.behavior.idle_timeout_seconds = self.behavior.idle_timeout_seconds.min(3600);
         self.behavior.pause_hide_seconds = self.behavior.pause_hide_seconds.min(600);
+        self.behavior.config_transition_ms = self.behavior.config_transition_ms.clamp(80, 800);
         self.behavior.source_custom = self
             .behavior
             .source_custom

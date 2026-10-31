@@ -21,6 +21,8 @@ Offscreen native render over a neutral review backdrop. The real widget is a tra
 - Eight bundled OFL families with lazy per-family loading, cap-height optical scaling, and baseline normalization
 - Poppins is the default typeface, with Lato and the other bundled families available in the picker
 - Long lyric lines wrap like a streaming lyrics view, and the card can show or hide album art and track info
+- Active marker visibility/color, artwork size and rounding, and a configurable interface-animation speed
+- Visual settings swaps and track changes crossfade; lyric lines use a 520 ms scroll/fade
 - Six presets, a story-style font picker, and `.ttf`/`.otf` upload in the settings companion
 - Per-track lyric offsets and font overrides
 - Tray show/hide, settings, click-through, mode cycling, and quit
