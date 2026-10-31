@@ -118,6 +118,14 @@ pub fn run(options: Options) -> Result<(), String> {
     Ok(())
 }
 
+struct ConfigFade {
+    old: Vec<u8>,
+    width: usize,
+    height: usize,
+    started: Instant,
+    duration: Duration,
+}
+
 struct BenchState {
     output: PathBuf,
     started: Instant,
@@ -224,6 +232,7 @@ pub struct App {
     fetching_key: Option<String>,
     lyrics_retry_at: Option<Instant>,
     lyrics_retry_count: u8,
+    config_fade: Option<ConfigFade>,
     bench: Option<BenchState>,
 }
 
@@ -304,6 +313,7 @@ impl App {
             fetching_key: None,
             lyrics_retry_at: None,
             lyrics_retry_count: 0,
+            config_fade: None,
             bench: None,
         }
     }
@@ -432,10 +442,28 @@ impl App {
         if cleared_positions {
             self.persist_config();
         }
-        if background_visuals_changed(&effective, &previous_effective) {
+        let background_changed = background_visuals_changed(&effective, &previous_effective);
+        let text_changed = text_visuals_changed(&effective, &previous_effective);
+        if (background_changed || text_changed) && self.renderer.is_some() {
+            if let Some(renderer) = &self.renderer {
+                if let Some(metrics) = &renderer.metrics {
+                    let frame = renderer.frame();
+                    if !frame.is_empty() {
+                        self.config_fade = Some(ConfigFade {
+                            old: frame.to_vec(),
+                            width: metrics.window_w.max(1) as usize,
+                            height: metrics.window_h.max(1) as usize,
+                            started: Instant::now(),
+                            duration: Duration::from_millis(300),
+                        });
+                    }
+                }
+            }
+        }
+        if background_changed {
             self.background_dirty = true;
         }
-        if text_visuals_changed(&effective, &previous_effective) {
+        if text_changed {
             self.text_dirty = true;
         }
         self.update_status();
@@ -1408,6 +1436,7 @@ impl App {
         } else {
             None
         };
+        let fade = self.config_fade.take();
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
@@ -1444,8 +1473,25 @@ impl App {
             self.text_dirty = false;
         }
         renderer.render(&view);
+        let new_w = metrics.window_w.max(1) as usize;
+        let new_h = metrics.window_h.max(1) as usize;
+        let mut blended = None;
+        if let Some(fade) = fade {
+            let elapsed = fade.started.elapsed().as_secs_f32();
+            let progress = (elapsed / fade.duration.as_secs_f32()).clamp(0.0, 1.0);
+            if progress < 1.0 {
+                blended = Some(compose_config_fade(
+                    renderer.frame(),
+                    new_w,
+                    new_h,
+                    &fade,
+                    progress,
+                ));
+                self.config_fade = Some(fade);
+            }
+        }
         if let (Some(surface), Some(hwnd)) = (&mut self.surface, self.hwnd) {
-            let frame = renderer.frame();
+            let frame = blended.as_deref().unwrap_or_else(|| renderer.frame());
             if surface.pixels_mut().len() == frame.len() {
                 surface.pixels_mut().copy_from_slice(frame);
                 surface.present(hwnd);
@@ -2075,6 +2121,22 @@ impl ApplicationHandler<AppEvent> for App {
                 next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
             }
         }
+        if let Some(fade) = &self.config_fade {
+            let end = fade.started + fade.duration;
+            if now >= end {
+                self.config_fade = None;
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            } else {
+                let frame = now + Duration::from_millis(16);
+                next = Some(next.map(|value| value.min(frame)).unwrap_or(frame));
+                next = Some(next.map(|value| value.min(end)).unwrap_or(end));
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+        }
         if let Some(deadline) = self.preview_probe_at {
             if now >= deadline {
                 self.preview_probe_at = None;
@@ -2136,6 +2198,37 @@ impl ApplicationHandler<AppEvent> for App {
         }
         self.tray = None;
     }
+}
+
+fn compose_config_fade(
+    current: &[u8],
+    width: usize,
+    height: usize,
+    fade: &ConfigFade,
+    progress: f32,
+) -> Vec<u8> {
+    let expected = width.saturating_mul(height).saturating_mul(4);
+    let old_expected = fade.width.saturating_mul(fade.height).saturating_mul(4);
+    if current.len() != expected || fade.old.len() != old_expected || expected == 0 {
+        return current.to_vec();
+    }
+    let progress = progress.clamp(0.0, 1.0);
+    let t = progress * progress * (3.0 - 2.0 * progress);
+    let mut output = vec![0u8; expected];
+    for y in 0..height {
+        let old_y = (y * fade.height / height).min(fade.height.saturating_sub(1));
+        for x in 0..width {
+            let old_x = (x * fade.width / width).min(fade.width.saturating_sub(1));
+            let new_index = (y * width + x) * 4;
+            let old_index = (old_y * fade.width + old_x) * 4;
+            for channel in 0..4 {
+                output[new_index + channel] = (current[new_index + channel] as f32 * t
+                    + fade.old[old_index + channel] as f32 * (1.0 - t))
+                    .round() as u8;
+            }
+        }
+    }
+    output
 }
 
 fn background_visuals_changed(current: &Config, previous: &Config) -> bool {

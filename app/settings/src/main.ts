@@ -298,6 +298,24 @@ if (!appRoot) {
 }
 const root = appRoot;
 
+root.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element) || !state.config) {
+    return;
+  }
+  const button = target.closest<HTMLButtonElement>("[data-surface]");
+  const kind = button?.dataset.surface as BackgroundKind | undefined;
+  if (!kind) {
+    return;
+  }
+  edit(() => {
+    if (state.config) {
+      state.config.background.kind = kind;
+    }
+  });
+  renderSection();
+});
+
 let saveTimer: number | undefined;
 let savePromise: Promise<void> | null = null;
 let saveQueued = false;
@@ -1168,18 +1186,6 @@ function bindChoice(id: string, update: (value: string) => void, rerender = fals
 }
 
 function bindAppearance(config: Config): void {
-  for (const button of root.querySelectorAll<HTMLButtonElement>("[data-surface]")) {
-    button.addEventListener("click", () => {
-      const kind = button.dataset.surface as BackgroundKind | undefined;
-      if (!kind) {
-        return;
-      }
-      edit(() => {
-        config.background.kind = kind;
-      });
-      renderSection();
-    });
-  }
   for (const button of root.querySelectorAll<HTMLButtonElement>("[data-preset]")) {
     button.addEventListener("click", () => {
       const id = button.dataset.preset;

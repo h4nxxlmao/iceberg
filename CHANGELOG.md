@@ -11,6 +11,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Long lyric lines now wrap to up to three visual rows. The card reserves two extra rows when wrapping is enabled so the wrapped text has somewhere to go instead of being clipped.
 - Content controls for showing or hiding album art, the track and artist line, and wrapping long lyrics.
 - The lyric viewport now renders surrounding lines above and below the visible window, so an incoming line slides into place rather than appearing only after the scroll reaches it.
+- Surface, preset, font, background, and other visual config changes crossfade over 300 ms instead of snapping. Settings selection borders transition over 160 ms.
 - Force a fresh lyric lookup from Settings. It bypasses the cached not-found result and retries LRCLIB with a free-text fallback. The current line can be copied from the same panel.
 - A source label in the settings status and an explicit loading/not-found/error lyric state instead of a misleading demo line.
 - Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).
@@ -60,6 +61,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - A stuck line transition no longer prevents the active lyric from advancing. While Settings is open, the preview re-queries SMTC until a real track replaces the demo, and the settings status follows the widget.
 - Album cover fetches retry when the first SMTC thumbnail is unavailable, and a late cover updates the existing track instead of being dropped.
 - The settings window no longer shows two vertical scrollbars. The layout owns the viewport and the sheet is the only scroll container.
+- Surface selection uses delegated clicks instead of per-button listeners, so the surface row now applies through the same live-save path as every other control. A real surface click reached the widget config in 214 ms.
 - Source changes re-query the current SMTC session immediately instead of waiting for the next media event.
 - A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
 - The settings window no longer stalls while a save is written, a status poll runs, or a preview image loads. A measured per-track settings change reached the live widget config in 68 ms.
