@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -13,18 +13,19 @@ use iceberg_core::presets::{builtin_presets, Preset};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+#[derive(Clone)]
 pub struct SettingsState {
-    paths: Paths,
+    paths: Arc<Paths>,
     section: String,
-    client: Mutex<Option<Client>>,
+    client: Arc<Mutex<Option<Client>>>,
 }
 
 impl SettingsState {
     pub fn new(paths: Paths, section: String) -> Self {
         Self {
-            paths,
+            paths: Arc::new(paths),
             section,
-            client: Mutex::new(None),
+            client: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -137,6 +138,17 @@ fn try_connect() -> Option<Client> {
     }
 }
 
+async fn blocking<T, F>(state: &State<'_, SettingsState>, run: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(SettingsState) -> Result<T, String> + Send + 'static,
+{
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || run(state))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 fn spawn_widget() -> Result<(), String> {
     let exe = std::env::current_exe()
         .map_err(|error| error.to_string())?
@@ -194,80 +206,98 @@ pub struct ImageData {
 }
 
 #[tauri::command]
-pub fn bootstrap(state: State<'_, SettingsState>) -> Result<Bootstrap, String> {
-    state.ensure_client()?;
-    let _ = state.request(&IpcMessage::OpenSettings)?;
-    std::thread::sleep(Duration::from_millis(80));
-    let config = state.get_config()?;
-    let status = state.get_status()?;
-    Ok(Bootstrap {
-        config,
-        status,
-        presets: builtin_presets(),
-        fonts: fonts::catalog(&state.paths.fonts),
-        section: state.section.clone(),
+pub async fn bootstrap(state: State<'_, SettingsState>) -> Result<Bootstrap, String> {
+    blocking(&state, |state| {
+        state.ensure_client()?;
+        let _ = state.request(&IpcMessage::OpenSettings)?;
+        std::thread::sleep(Duration::from_millis(80));
+        let config = state.get_config()?;
+        let status = state.get_status()?;
+        Ok(Bootstrap {
+            config,
+            status,
+            presets: builtin_presets(),
+            fonts: fonts::catalog(&state.paths.fonts),
+            section: state.section.clone(),
+        })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn refresh(state: State<'_, SettingsState>) -> Result<SyncState, String> {
-    Ok(SyncState {
-        config: state.get_config()?,
-        status: state.get_status()?,
+pub async fn refresh(state: State<'_, SettingsState>) -> Result<SyncState, String> {
+    blocking(&state, |state| {
+        Ok(SyncState {
+            config: state.get_config()?,
+            status: state.get_status()?,
+        })
     })
+    .await
 }
 
 #[tauri::command]
-pub fn status(state: State<'_, SettingsState>) -> Result<IpcStatus, String> {
-    state.get_status()
+pub async fn status(state: State<'_, SettingsState>) -> Result<IpcStatus, String> {
+    blocking(&state, |state| state.get_status()).await
 }
 
 #[tauri::command]
-pub fn save_config(state: State<'_, SettingsState>, config: Config) -> Result<Config, String> {
-    state.commit_config(config)
+pub async fn save_config(
+    state: State<'_, SettingsState>,
+    config: Config,
+) -> Result<Config, String> {
+    blocking(&state, move |state| state.commit_config(config)).await
 }
 
 #[tauri::command]
-pub fn apply_preset(state: State<'_, SettingsState>, id: String) -> Result<Config, String> {
-    let mut config = state.get_config()?;
-    let preset = builtin_presets()
-        .into_iter()
-        .find(|preset| preset.id == id)
-        .ok_or_else(|| format!("Unknown preset '{id}'"))?;
-    preset.apply_to(&mut config);
-    state.commit_config(config)
+pub async fn apply_preset(state: State<'_, SettingsState>, id: String) -> Result<Config, String> {
+    blocking(&state, move |state| {
+        let mut config = state.get_config()?;
+        let preset = builtin_presets()
+            .into_iter()
+            .find(|preset| preset.id == id)
+            .ok_or_else(|| format!("Unknown preset '{id}'"))?;
+        preset.apply_to(&mut config);
+        state.commit_config(config)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn reset_section(state: State<'_, SettingsState>, section: String) -> Result<Config, String> {
-    let mut config = state.get_config()?;
-    match section.as_str() {
-        "appearance" => {
-            config.background = Background::default();
+pub async fn reset_section(
+    state: State<'_, SettingsState>,
+    section: String,
+) -> Result<Config, String> {
+    blocking(&state, move |state| {
+        let mut config = state.get_config()?;
+        match section.as_str() {
+            "appearance" => {
+                config.background = Background::default();
+            }
+            "typography" => {
+                config.typography = Typography::default();
+            }
+            "layout" => {
+                config.layout = Layout::default();
+            }
+            "playback" => {
+                config.behavior = Behavior::default();
+            }
+            "lyrics" => {
+                config.lyrics = LyricsSettings::default();
+                config.per_song.clear();
+            }
+            "hotkeys" => {
+                config.hotkeys = Hotkeys::default();
+            }
+            "all" => {
+                config = Config::default();
+            }
+            other => return Err(format!("Unknown section '{other}'")),
         }
-        "typography" => {
-            config.typography = Typography::default();
-        }
-        "layout" => {
-            config.layout = Layout::default();
-        }
-        "playback" => {
-            config.behavior = Behavior::default();
-        }
-        "lyrics" => {
-            config.lyrics = LyricsSettings::default();
-            config.per_song.clear();
-        }
-        "hotkeys" => {
-            config.hotkeys = Hotkeys::default();
-        }
-        "all" => {
-            config = Config::default();
-        }
-        other => return Err(format!("Unknown section '{other}'")),
-    }
-    config.active_preset = None;
-    state.commit_config(config)
+        config.active_preset = None;
+        state.commit_config(config)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -406,38 +436,52 @@ fn image_for(directory: &str, name: &str) -> Result<ImageData, String> {
 }
 
 #[tauri::command]
-pub fn preset_image(id: String) -> Result<ImageData, String> {
-    if !builtin_presets().iter().any(|preset| preset.id == id) {
-        return Err(format!("Unknown preset '{id}'"));
-    }
-    image_for("presets", &id)
+pub async fn preset_image(id: String) -> Result<ImageData, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !builtin_presets().iter().any(|preset| preset.id == id) {
+            return Err(format!("Unknown preset '{id}'"));
+        }
+        image_for("presets", &id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn surface_image(kind: String) -> Result<ImageData, String> {
-    if !matches!(
-        kind.as_str(),
-        "solid" | "transparent" | "acrylic" | "ice" | "liquid"
-    ) {
-        return Err(format!("Unknown surface '{kind}'"));
-    }
-    image_for("surfaces", &kind)
+pub async fn surface_image(kind: String) -> Result<ImageData, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !matches!(
+            kind.as_str(),
+            "solid" | "transparent" | "acrylic" | "ice" | "liquid"
+        ) {
+            return Err(format!("Unknown surface '{kind}'"));
+        }
+        image_for("surfaces", &kind)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn show_widget(state: State<'_, SettingsState>) -> Result<(), String> {
-    match state.request(&IpcMessage::ShowWidget)? {
-        IpcMessage::Pong => Ok(()),
-        IpcMessage::Error { message } => Err(message),
-        other => Err(format!("Unexpected widget response: {other:?}")),
-    }
+pub async fn show_widget(state: State<'_, SettingsState>) -> Result<(), String> {
+    blocking(&state, |state| {
+        match state.request(&IpcMessage::ShowWidget)? {
+            IpcMessage::Pong => Ok(()),
+            IpcMessage::Error { message } => Err(message),
+            other => Err(format!("Unexpected widget response: {other:?}")),
+        }
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn retry_lyrics(state: State<'_, SettingsState>) -> Result<(), String> {
-    match state.request(&IpcMessage::RefreshLyrics)? {
-        IpcMessage::Pong => Ok(()),
-        IpcMessage::Error { message } => Err(message),
-        other => Err(format!("Unexpected widget response: {other:?}")),
-    }
+pub async fn retry_lyrics(state: State<'_, SettingsState>) -> Result<(), String> {
+    blocking(&state, |state| {
+        match state.request(&IpcMessage::RefreshLyrics)? {
+            IpcMessage::Pong => Ok(()),
+            IpcMessage::Error { message } => Err(message),
+            other => Err(format!("Unexpected widget response: {other:?}")),
+        }
+    })
+    .await
 }

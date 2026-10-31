@@ -298,6 +298,8 @@ const root = appRoot;
 let saveTimer: number | undefined;
 let savePromise: Promise<void> | null = null;
 let saveQueued = false;
+let editVersion = 0;
+let statusPending = false;
 let fontPreviewRequest: Promise<void> | null = null;
 let pointerActive = false;
 
@@ -1433,6 +1435,7 @@ function edit(mutate: () => void): void {
     return;
   }
   mutate();
+  editVersion += 1;
   state.config.active_preset = null;
   for (const preset of root.querySelectorAll<HTMLElement>(".preset.is-selected")) {
     preset.classList.remove("is-selected");
@@ -1443,11 +1446,13 @@ function edit(mutate: () => void): void {
 
 function queueSave(): void {
   setSaveState("saving");
-  window.clearTimeout(saveTimer);
+  if (saveTimer !== undefined) {
+    return;
+  }
   saveTimer = window.setTimeout(() => {
     saveTimer = undefined;
     void flushSave();
-  }, 140);
+  }, 32);
 }
 
 async function flushSave(): Promise<void> {
@@ -1459,9 +1464,12 @@ async function flushSave(): Promise<void> {
     return;
   }
   setSaveState("saving");
+  const version = editVersion;
   savePromise = invoke<Config>("save_config", { config: state.config })
     .then((saved) => {
-      state.config = saved;
+      if (editVersion === version) {
+        state.config = saved;
+      }
       setSaveState("saved");
       hideBanner();
     })
@@ -1478,8 +1486,25 @@ async function flushSave(): Promise<void> {
     });
 }
 
+async function cancelPendingSave(): Promise<void> {
+  if (saveTimer !== undefined) {
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+  if (savePromise) {
+    await savePromise;
+    if (saveTimer !== undefined) {
+      window.clearTimeout(saveTimer);
+      saveTimer = undefined;
+    }
+  }
+  saveQueued = false;
+  editVersion += 1;
+}
+
 async function resetSection(section: string): Promise<void> {
   try {
+    await cancelPendingSave();
     const config = await invoke<Config>("reset_section", { section });
     state.config = config;
     setSaveState("saved");
@@ -1492,6 +1517,7 @@ async function resetSection(section: string): Promise<void> {
 
 async function applyPreset(id: string): Promise<void> {
   try {
+    await cancelPendingSave();
     const config = await invoke<Config>("apply_preset", { id });
     state.config = config;
     setSaveState("saved");
@@ -1655,9 +1681,10 @@ window.addEventListener("focus", () => {
 });
 
 window.setInterval(() => {
-  if (document.hidden || pointerActive || saveTimer || savePromise) {
+  if (document.hidden || pointerActive || saveTimer || savePromise || statusPending) {
     return;
   }
+  statusPending = true;
   void invoke<IpcStatus>("status")
     .then((status) => {
       const previousTrack = state.status.track?.key;
@@ -1673,6 +1700,9 @@ window.setInterval(() => {
     })
     .catch(() => {
       // The next poll or focus refresh retries after a widget restart.
+    })
+    .finally(() => {
+      statusPending = false;
     });
 }, 1000);
 

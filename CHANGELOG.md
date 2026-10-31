@@ -59,8 +59,12 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - The settings window no longer shows two vertical scrollbars. The layout owns the viewport and the sheet is the only scroll container.
 - Source changes re-query the current SMTC session immediately instead of waiting for the next media event.
 - A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
+- The settings window no longer stalls while a save is written, a status poll runs, or a preview image loads. A measured per-track settings change reached the live widget config in 68 ms.
 - LRCLIB 503 and 429 responses are retried with backoff. If a lyric request still fails, the widget retries automatically at 10 s, 30 s, and 60 s instead of showing a permanent “Lyrics unavailable” state. Settings now shows the real reason, such as “LRCLIB is busy”.
 - A line transition now requests its own redraw immediately instead of waiting for an unrelated SMTC or progress event. Playback updates animate the new line instead of snapping, so every line change uses the 360 ms slide/fade.
+- Settings IPC commands now run on background threads. Saving, status polling, presets, resets, preview images, and lyric retries no longer block the settings WebView or its click handling.
+- Settings edits are throttled at 32 ms instead of debounced for 140 ms. A late save response can no longer overwrite edits made while that save was in flight, and preset/reset actions wait for pending saves first.
+- The widget now invalidates its background and text caches only when the relevant visual settings change. Source, hotkey, behavior, and lyric-offset saves no longer rebuild the wallpaper pipeline or reindex lyrics.
 
 ### Performance
 

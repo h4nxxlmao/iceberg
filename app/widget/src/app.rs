@@ -378,6 +378,8 @@ impl App {
     fn apply_config(&mut self, config: Config) {
         let previous = std::mem::replace(&mut self.config, config);
         self.config.validate();
+        let previous_effective = previous.effective();
+        let effective = self.effective();
         if let Ok(mut shared) = self.config_shared.lock() {
             *shared = self.config.clone();
         }
@@ -422,14 +424,20 @@ impl App {
             self.config.layout.per_monitor.clear();
             cleared_positions = true;
         }
-        self.recompute_index(false);
+        if self.config.lyrics != previous.lyrics || self.config.per_song != previous.per_song {
+            self.recompute_index(false);
+        }
         self.update_timers();
         self.schedule_pause_hide();
         if cleared_positions {
             self.persist_config();
         }
-        self.background_dirty = true;
-        self.text_dirty = true;
+        if background_visuals_changed(&effective, &previous_effective) {
+            self.background_dirty = true;
+        }
+        if text_visuals_changed(&effective, &previous_effective) {
+            self.text_dirty = true;
+        }
         self.update_status();
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -2128,6 +2136,35 @@ impl ApplicationHandler<AppEvent> for App {
         }
         self.tray = None;
     }
+}
+
+fn background_visuals_changed(current: &Config, previous: &Config) -> bool {
+    let a = &current.typography;
+    let b = &previous.typography;
+    current.background != previous.background
+        || current.mode != previous.mode
+        || current.layout != previous.layout
+        || current.behavior.show_progress != previous.behavior.show_progress
+        || a.font_family != b.font_family
+        || a.font_size != b.font_size
+        || a.line_height != b.line_height
+        || a.active_color != b.active_color
+        || a.shadow != b.shadow
+        || a.outline != b.outline
+        || a.visible_lines != b.visible_lines
+}
+
+fn text_visuals_changed(current: &Config, previous: &Config) -> bool {
+    let a = &current.typography;
+    let b = &previous.typography;
+    a.font_family != b.font_family
+        || a.font_size != b.font_size
+        || a.weight != b.weight
+        || a.italic != b.italic
+        || a.letter_spacing != b.letter_spacing
+        || a.active_color != b.active_color
+        || a.case != b.case
+        || current.per_song != previous.per_song
 }
 
 fn background_label(kind: BackgroundKind) -> &'static str {
