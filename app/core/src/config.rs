@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::util::{clamp_f64, clamp_i64, replace_file, sanitize_apps, sanitize_hex};
 
-pub const CONFIG_VERSION: u32 = 3;
+pub const CONFIG_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -185,6 +185,7 @@ pub struct LyricsSettings {
     pub offset_ms: i64,
     pub unsynced: UnsyncedMode,
     pub word_highlight: bool,
+    pub wrap: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -199,6 +200,8 @@ pub struct Behavior {
     pub battery_saver: bool,
     pub reduce_motion: bool,
     pub show_progress: bool,
+    pub show_art: bool,
+    pub show_meta: bool,
     pub source: SourceMode,
     pub source_custom: String,
     pub preferred_apps: Vec<String>,
@@ -290,7 +293,7 @@ impl Default for Typography {
             outline: false,
             visible_lines: 5,
             transition: TransitionStyle::Slide,
-            transition_ms: 360,
+            transition_ms: 520,
         }
     }
 }
@@ -324,6 +327,7 @@ impl Default for LyricsSettings {
             offset_ms: 0,
             unsynced: UnsyncedMode::Static,
             word_highlight: true,
+            wrap: true,
         }
     }
 }
@@ -340,6 +344,8 @@ impl Default for Behavior {
             battery_saver: false,
             reduce_motion: false,
             show_progress: true,
+            show_art: true,
+            show_meta: true,
             source: SourceMode::Spotify,
             source_custom: String::new(),
             preferred_apps: Vec::new(),
@@ -407,6 +413,10 @@ impl Config {
             self.typography.letter_spacing = -0.012;
             self.typography.inactive_opacity = 0.34;
             self.typography.transition_ms = 360;
+        }
+        if self.version < 4 && self.active_preset.is_none() && self.typography.transition_ms == 360
+        {
+            self.typography.transition_ms = 520;
         }
         self.version = CONFIG_VERSION;
         if self.active_preset.as_deref() == Some("") {
@@ -752,7 +762,7 @@ mod tests {
         config.migrate();
         assert_eq!(config.typography.font_family, "Poppins");
         assert_eq!(config.typography.font_size, 19.0);
-        assert_eq!(config.typography.transition_ms, 360);
+        assert_eq!(config.typography.transition_ms, 520);
     }
 
     #[test]

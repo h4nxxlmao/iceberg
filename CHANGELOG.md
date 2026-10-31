@@ -8,6 +8,9 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 
 - Native widget workspace (`app/core`, `app/widget`) with per-monitor DPI v2, exact tool-window styles, event-driven SMTC, LRCLIB enhanced word timings, font metric normalization, six presets, cached background and lyric layers, and a lazy tray-only mode.
 - Music source selection for Spotify, Apple Music, a custom SMTC app, or an explicit Any app. The default is Spotify, so browser and YouTube sessions are not followed unless selected.
+- Long lyric lines now wrap to up to three visual rows. The card reserves two extra rows when wrapping is enabled so the wrapped text has somewhere to go instead of being clipped.
+- Content controls for showing or hiding album art, the track and artist line, and wrapping long lyrics.
+- The lyric viewport now renders surrounding lines above and below the visible window, so an incoming line slides into place rather than appearing only after the scroll reaches it.
 - Force a fresh lyric lookup from Settings. It bypasses the cached not-found result and retries LRCLIB with a free-text fallback. The current line can be copied from the same panel.
 - A source label in the settings status and an explicit loading/not-found/error lyric state instead of a misleading demo line.
 - Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).
@@ -32,7 +35,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 ### Changed
 
 - Relicensed the project from MIT to **GPL-3.0-only**. Releases published before this change remain under the terms they were distributed with.
-- The default widget font is now Poppins instead of Lato, with 19 px type, 1.35 leading, tighter tracking, and a 360 ms transition. Lato remains available in the picker. Config v3 migrates an unpinned Lato config to Poppins.
+- The default widget font is now Poppins instead of Lato, with 19 px type, 1.35 leading, tighter tracking, and a 520 ms transition. Lato remains available in the picker. Config v3 migrates an unpinned Lato config to Poppins; v4 raises the transition default to 520 ms.
 - Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
 - The Paper preset uses Abril Fatface and Quiet uses Space Mono.
 - The Frost preset uses ink text on the light ice surface for contrast.
@@ -61,7 +64,8 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
 - The settings window no longer stalls while a save is written, a status poll runs, or a preview image loads. A measured per-track settings change reached the live widget config in 68 ms.
 - LRCLIB 503 and 429 responses are retried with backoff. If a lyric request still fails, the widget retries automatically at 10 s, 30 s, and 60 s instead of showing a permanent “Lyrics unavailable” state. Settings now shows the real reason, such as “LRCLIB is busy”.
-- A line transition now requests its own redraw immediately instead of waiting for an unrelated SMTC or progress event. Playback updates animate the new line instead of snapping, so every line change uses the 360 ms slide/fade.
+- A line transition now requests its own redraw immediately instead of waiting for an unrelated SMTC or progress event. Playback updates animate the new line instead of snapping, so every line change uses the full slide/fade.
+- Lyric scrolling now lays out variable-height wrapped rows and scrolls by the outgoing line's actual height, with the surrounding lines already in the viewport.
 - Settings IPC commands now run on background threads. Saving, status polling, presets, resets, preview images, and lyric retries no longer block the settings WebView or its click handling.
 - Settings edits are throttled at 32 ms instead of debounced for 140 ms. A late save response can no longer overwrite edits made while that save was in flight, and preset/reset actions wait for pending saves first.
 - The widget now invalidates its background and text caches only when the relevant visual settings change. Source, hotkey, behavior, and lyric-offset saves no longer rebuild the wallpaper pipeline or reindex lyrics.

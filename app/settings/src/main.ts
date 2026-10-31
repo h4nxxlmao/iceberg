@@ -77,6 +77,7 @@ interface LyricsSettings {
   offset_ms: number;
   unsynced: "static" | "hide";
   word_highlight: boolean;
+  wrap: boolean;
 }
 
 interface Behavior {
@@ -89,6 +90,8 @@ interface Behavior {
   battery_saver: boolean;
   reduce_motion: boolean;
   show_progress: boolean;
+  show_art: boolean;
+  show_meta: boolean;
   source: SourceMode;
   source_custom: string;
   preferred_apps: string[];
@@ -946,6 +949,7 @@ function renderLyrics(config: Config): string {
           { value: "static", label: "Static page" },
           { value: "hide", label: "Hide" },
         ], config.lyrics.unsynced),
+        checkRow("lyrics-wrap", "Wrap long lines", "", config.lyrics.wrap),
       ].join(""),
     )}
     ${
@@ -1015,6 +1019,8 @@ function renderPlayback(config: Config): string {
       "",
       [
         checkRow("behavior-progress", "Show progress bar", "", behavior.show_progress),
+        checkRow("behavior-art", "Show album art", "", behavior.show_art),
+        checkRow("behavior-meta", "Show track and artist", "", behavior.show_meta),
         checkRow("behavior-click-through", "Click-through", "", behavior.click_through),
         checkRow("behavior-startup", "Start with Windows", "", behavior.start_with_windows),
       ].join(""),
@@ -1300,6 +1306,7 @@ function bindLayout(config: Config): void {
 function bindLyrics(config: Config): void {
   bindRange("lyrics-offset", (value) => { config.lyrics.offset_ms = Math.round(value); }, (value) => `${Math.round(value)} ms`);
   bindChoice("lyrics-unsynced", (value) => { config.lyrics.unsynced = value as "static" | "hide"; });
+  bindCheck("lyrics-wrap", (value) => { config.lyrics.wrap = value; });
   for (const button of root.querySelectorAll<HTMLButtonElement>("[data-track-offset]")) {
     button.addEventListener("click", () => {
       const track = currentTrack();
@@ -1367,6 +1374,8 @@ function bindPlayback(config: Config): void {
     });
   });
   bindCheck("behavior-progress", (value) => { config.behavior.show_progress = value; });
+  bindCheck("behavior-art", (value) => { config.behavior.show_art = value; });
+  bindCheck("behavior-meta", (value) => { config.behavior.show_meta = value; });
   bindCheck("behavior-click-through", (value) => { config.behavior.click_through = value; });
   bindCheck("behavior-fullscreen", (value) => { config.behavior.hide_on_fullscreen = value; });
   bindCheck("behavior-startup", (value) => { config.behavior.start_with_windows = value; });

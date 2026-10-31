@@ -2145,6 +2145,8 @@ fn background_visuals_changed(current: &Config, previous: &Config) -> bool {
         || current.mode != previous.mode
         || current.layout != previous.layout
         || current.behavior.show_progress != previous.behavior.show_progress
+        || current.behavior.show_art != previous.behavior.show_art
+        || current.behavior.show_meta != previous.behavior.show_meta
         || a.font_family != b.font_family
         || a.font_size != b.font_size
         || a.line_height != b.line_height
@@ -2165,6 +2167,7 @@ fn text_visuals_changed(current: &Config, previous: &Config) -> bool {
         || a.active_color != b.active_color
         || a.case != b.case
         || current.per_song != previous.per_song
+        || current.lyrics.wrap != previous.lyrics.wrap
 }
 
 fn background_label(kind: BackgroundKind) -> &'static str {

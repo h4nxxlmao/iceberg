@@ -69,13 +69,16 @@ pub struct Transition {
 
 impl Transition {
     pub fn position(&self, now_ms: i64) -> f32 {
+        self.from + (self.to - self.from) * self.progress(now_ms)
+    }
+
+    pub fn progress(&self, now_ms: i64) -> f32 {
         if self.duration_ms == 0 {
-            return self.to;
+            return 1.0;
         }
         let elapsed = (now_ms - self.started_ms).max(0) as f32;
         let t = (elapsed / self.duration_ms as f32).clamp(0.0, 1.0);
-        let eased = 1.0 - (1.0 - t).powi(3);
-        self.from + (self.to - self.from) * eased
+        1.0 - (1.0 - t).powi(3)
     }
 
     pub fn finished(&self, now_ms: i64) -> bool {
@@ -203,6 +206,7 @@ pub struct Metrics {
     pub line_height: f64,
     pub baseline_offset: f64,
     pub visible_lines: usize,
+    pub lyric_view_lines: usize,
     pub radius: f64,
     pub border: f64,
 }
@@ -234,25 +238,51 @@ pub fn compute_metrics(
     let gap = 10.0 * effective;
     let progress_h = 2.0 * effective;
 
-    let (art_size, _meta_h, progress_y, lyric_y, lyric_lines, card_h) = match mode {
+    let (art_size, _meta_h, progress_y, lyric_y, lyric_lines, lyric_view_lines, card_h) = match mode
+    {
         WidgetMode::Card => {
-            let art_size = 44.0 * effective;
-            let meta_h = art_size.max(font_size * 2.2);
-            let progress_y = padding + meta_h + gap;
+            let art_size = if config.behavior.show_art {
+                44.0 * effective
+            } else {
+                0.0
+            };
+            let meta_h = if config.behavior.show_meta {
+                art_size.max(font_size * 2.2)
+            } else {
+                art_size
+            };
+            let progress_y = padding + meta_h + if meta_h > 0.0 { gap } else { 0.0 };
             let lyric_y = progress_y + if show_progress { progress_h + gap } else { 0.0 };
-            let card_h = lyric_y + visible_lines as f64 * line_height + padding;
-            (art_size, meta_h, progress_y, lyric_y, visible_lines, card_h)
+            let view_lines = visible_lines + if config.lyrics.wrap { 2 } else { 0 };
+            let card_h = lyric_y + view_lines as f64 * line_height + padding;
+            (
+                art_size,
+                meta_h,
+                progress_y,
+                lyric_y,
+                visible_lines,
+                view_lines,
+                card_h,
+            )
         }
         WidgetMode::Lyrics => {
             let card_h = padding * 2.0 + visible_lines as f64 * line_height;
-            (0.0, 0.0, 0.0, padding, visible_lines, card_h)
+            (0.0, 0.0, 0.0, padding, visible_lines, visible_lines, card_h)
         }
         WidgetMode::Island => {
-            let art_size = 28.0 * effective;
-            let meta_h = art_size.max(font_size * 1.95);
-            let lyric_y = padding + meta_h + 4.0 * effective;
+            let art_size = if config.behavior.show_art {
+                28.0 * effective
+            } else {
+                0.0
+            };
+            let meta_h = if config.behavior.show_meta {
+                art_size.max(font_size * 1.95)
+            } else {
+                art_size
+            };
+            let lyric_y = padding + meta_h + if meta_h > 0.0 { 4.0 * effective } else { 0.0 };
             let card_h = lyric_y + line_height + padding;
-            (art_size, meta_h, 0.0, lyric_y, 1, card_h)
+            (art_size, meta_h, 0.0, lyric_y, 1, 1, card_h)
         }
     };
 
@@ -308,6 +338,7 @@ pub fn compute_metrics(
         line_height,
         baseline_offset,
         visible_lines: lyric_lines,
+        lyric_view_lines,
         radius,
         border,
     }
@@ -354,6 +385,7 @@ impl<'a> View<'a> {
 struct TextMask {
     width: usize,
     height: usize,
+    visual_lines: usize,
     offset_x: i32,
     offset_y: i32,
     pixels: Vec<u8>,
@@ -478,6 +510,8 @@ impl Renderer {
             },
             (width as f32) - 36.0,
             2,
+            false,
+            None,
         );
         let mut image = vec![0u8; width as usize * height as usize * 4];
         for pixel in image.chunks_exact_mut(4) {
@@ -562,7 +596,7 @@ impl Renderer {
             self.draw_art(view, &metrics, active);
         }
 
-        if metrics.meta_w > 1.0 && metrics.art_size > 0.0 {
+        if metrics.meta_w > 1.0 && view.config.behavior.show_meta {
             let title = view
                 .track
                 .map(|track| track.title.as_str())
@@ -593,6 +627,8 @@ impl Renderer {
                         active,
                         metrics.meta_w as f32,
                         1,
+                        false,
+                        None,
                     );
                     let artist_mask = self.rasterize_text(
                         artist,
@@ -603,6 +639,8 @@ impl Renderer {
                         active.with_alpha(0.54),
                         metrics.meta_w as f32,
                         1,
+                        false,
+                        None,
                     );
                     self.meta_masks = Some(MetaMasks {
                         key,
@@ -740,6 +778,8 @@ impl Renderer {
                 active.with_alpha(0.55),
                 size as f32,
                 1,
+                false,
+                None,
             );
             let mask_x = x + (size - mask.width as f64) / 2.0 - mask.offset_x as f64;
             let mask_y = y + (size - mask.height as f64) / 2.0 - mask.offset_y as f64;
@@ -780,51 +820,79 @@ impl Renderer {
                 if count == 0 {
                     return;
                 }
-                let center = view
-                    .transition
+                let transition = view.transition;
+                let target = transition
+                    .map(|transition| transition.to.round() as usize)
+                    .or(view.current_index)
+                    .unwrap_or(0)
+                    .min(count - 1);
+                let from = transition
+                    .map(|transition| transition.from.round() as usize)
+                    .unwrap_or(target)
+                    .min(count - 1);
+                let center = transition
                     .map(|transition| transition.position(view.now_ms))
-                    .or_else(|| view.current_index.map(|index| index as f32))
-                    .unwrap_or(0.0);
-                let y_center = if view.config.typography.transition == TransitionStyle::Fade {
-                    view.transition
-                        .map(|transition| transition.to)
-                        .or_else(|| view.current_index.map(|index| index as f32))
-                        .unwrap_or(center)
-                } else {
-                    center
-                };
+                    .unwrap_or(target as f32);
+                let progress = transition
+                    .map(|transition| transition.progress(view.now_ms))
+                    .unwrap_or(1.0);
                 let lines = metrics.visible_lines.max(1);
-                let before = (lines / 2) as f32;
-                let range = visible_range(count, center, lines);
-                let inactive = view.config.typography.inactive_opacity as f32;
-                for index in range {
+                let before = (lines / 2) as f64;
+                let style = view.config.typography.transition;
+                let start = target.saturating_sub(6);
+                let end = (target + 8).min(count - 1);
+                let mut entries: Vec<(usize, TextMask, f64)> = Vec::new();
+                for index in start..=end {
                     let Some(line) = lyrics.lines.get(index) else {
                         continue;
                     };
-                    let distance = (index as f32 - center).abs().min(1.0);
+                    let text = apply_case(&line.text, view.config.typography.case);
+                    let mask = self.line_mask(view, metrics, index, &text);
+                    let height = mask.visual_lines.max(1) as f64 * metrics.line_height;
+                    entries.push((index, mask, height));
+                }
+                let Some(target_pos) = entries.iter().position(|(index, _, _)| *index == target)
+                else {
+                    return;
+                };
+                let mut offsets = vec![0.0; entries.len()];
+                for position in (0..target_pos).rev() {
+                    offsets[position] = offsets[position + 1] - entries[position].2;
+                }
+                for position in (target_pos + 1)..entries.len() {
+                    offsets[position] = offsets[position - 1] + entries[position - 1].2;
+                }
+                let from_offset = entries
+                    .iter()
+                    .position(|(index, _, _)| *index == from)
+                    .map(|position| offsets[position])
+                    .unwrap_or(0.0);
+                let shift = if transition.is_some() && style == TransitionStyle::Slide {
+                    -from_offset * (1.0 - progress as f64)
+                } else {
+                    0.0
+                };
+                let slot = metrics.lyric_y + metrics.baseline_offset + before * metrics.line_height;
+                let inactive = view.config.typography.inactive_opacity as f32;
+                for (position, (index, mask, _)) in entries.iter().enumerate() {
+                    let distance = (*index as f32 - center).abs().min(1.0);
                     let opacity = inactive + (1.0 - inactive) * (1.0 - distance);
                     if opacity <= 0.005 {
                         continue;
                     }
-                    let y = metrics.lyric_y
-                        + metrics.baseline_offset
-                        + before as f64 * metrics.line_height
-                        + (index as f64 - y_center as f64) * metrics.line_height;
-                    let text = apply_case(&line.text, view.config.typography.case);
-                    let mask = self.line_mask(view, metrics, index, &text);
                     let x = aligned_x(
                         view.config.typography.align,
                         metrics.lyric_x,
                         metrics.lyric_w,
-                        &mask,
+                        mask,
                     );
                     blit_mask(
                         &mut self.text,
                         metrics.window_w,
                         metrics.window_h,
-                        &mask,
+                        mask,
                         x,
-                        y as i32,
+                        (slot + offsets[position] + shift) as i32,
                         opacity,
                         view.config.typography.shadow,
                         view.config.typography.outline,
@@ -832,7 +900,7 @@ impl Renderer {
                         view.synthetic_bold(view.config.typography.weight as u16),
                     );
                 }
-                self.draw_marker(view, metrics, before);
+                self.draw_marker(view, metrics, before as f32);
             }
             Content::Plain => {
                 let Some(lyrics) = view.lyrics else {
@@ -967,6 +1035,8 @@ impl Renderer {
             active,
             metrics.lyric_w as f32,
             1,
+            false,
+            None,
         );
         let y = metrics.lyric_y + metrics.baseline_offset + metrics.line_height * 0.55;
         let x = aligned_x(
@@ -998,6 +1068,8 @@ impl Renderer {
                 active.with_alpha(0.5),
                 metrics.lyric_w as f32,
                 1,
+                false,
+                None,
             );
             let sub_x = aligned_x(
                 view.config.typography.align,
@@ -1082,7 +1154,7 @@ impl Renderer {
         let y0 = (metrics.lyric_y - 10.0 * metrics.scale).floor().max(0.0) as i32;
         let x1 = (metrics.lyric_x + metrics.lyric_w + 8.0 * metrics.scale).ceil() as i32;
         let y1 = (metrics.lyric_y
-            + metrics.visible_lines as f64 * metrics.line_height
+            + metrics.lyric_view_lines as f64 * metrics.line_height
             + 12.0 * metrics.scale)
             .ceil() as i32;
         blend_region(
@@ -1108,6 +1180,7 @@ impl Renderer {
             return mask.clone();
         }
         let family = view.font_family;
+        let wrap = view.config.lyrics.wrap;
         let mask = self.rasterize_text(
             text,
             family,
@@ -1116,7 +1189,9 @@ impl Renderer {
             view.config.typography.letter_spacing as f32,
             view.active_color(),
             metrics.lyric_w as f32,
-            1,
+            if wrap { 3 } else { 1 },
+            wrap,
+            Some(metrics.line_height as f32),
         );
         self.line_masks.insert(index, mask.clone());
         while self.line_masks.len() > 64 {
@@ -1146,6 +1221,8 @@ impl Renderer {
             view.active_color(),
             metrics.lyric_w as f32,
             1,
+            false,
+            None,
         );
         self.plain_masks.insert(index, mask.clone());
         mask
@@ -1168,7 +1245,18 @@ impl Renderer {
             return mask.clone();
         }
         let family = view.font_family;
-        let mask = self.rasterize_text(text, family, size, weight, letter_spacing, color, width, 1);
+        let mask = self.rasterize_text(
+            text,
+            family,
+            size,
+            weight,
+            letter_spacing,
+            color,
+            width,
+            1,
+            false,
+            None,
+        );
         self.state_masks.insert(key, mask.clone());
         mask
     }
@@ -1184,17 +1272,21 @@ impl Renderer {
         color: Rgba,
         max_width: f32,
         lines: usize,
+        wrap: bool,
+        line_height: Option<f32>,
     ) -> TextMask {
         if text.trim().is_empty() {
             return TextMask {
                 width: 1,
                 height: 1,
+                visual_lines: 1,
                 offset_x: 0,
                 offset_y: 0,
                 pixels: vec![0; 4],
             };
         }
-        let metrics = TextMetrics::new(size.max(4.0), (size * 1.4).max(6.0));
+        let line_height = line_height.unwrap_or(size * 1.4).max(size * 0.8);
+        let metrics = TextMetrics::new(size.max(4.0), line_height.max(6.0));
         let pad = (size * 0.5).ceil() as i32 + 2;
         let width = max_width.ceil().max(1.0) as usize + pad as usize * 2;
         let height = (metrics.line_height * lines.max(1) as f32).ceil() as usize + pad as usize * 2;
@@ -1204,7 +1296,7 @@ impl Renderer {
             Some(max_width.max(1.0)),
             Some(metrics.line_height * lines.max(1) as f32),
         );
-        buffer.set_wrap(Wrap::None);
+        buffer.set_wrap(if wrap { Wrap::WordOrGlyph } else { Wrap::None });
         let attrs = Attrs::new()
             .family(Family::Name(family))
             .weight(Weight(weight))
@@ -1212,6 +1304,7 @@ impl Renderer {
             .metrics(metrics);
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(&mut self.font_system, false);
+        let visual_lines = buffer.layout_runs().count().clamp(1, lines.max(1));
         buffer.draw(
             &mut self.font_system,
             &mut self.swash_cache,
@@ -1248,6 +1341,7 @@ impl Renderer {
             return TextMask {
                 width: 1,
                 height: 1,
+                visual_lines: 1,
                 offset_x: 0,
                 offset_y: 0,
                 pixels: vec![0; 4],
@@ -1266,6 +1360,7 @@ impl Renderer {
         TextMask {
             width: crop_w,
             height: crop_h,
+            visual_lines,
             offset_x: min_x - pad,
             offset_y: min_y - pad,
             pixels,
@@ -1279,28 +1374,6 @@ fn apply_case(text: &str, case: TextCase) -> String {
         TextCase::Upper => text.to_uppercase(),
         TextCase::Lower => text.to_lowercase(),
     }
-}
-
-pub fn visible_range(count: usize, center: f32, lines: usize) -> std::ops::RangeInclusive<usize> {
-    if count == 0 || lines == 0 {
-        return 0..=0;
-    }
-    let before = (lines / 2) as i32;
-    let center_index = center.floor() as i32;
-    let mut start = center_index - before;
-    let mut end = start + lines as i32 - 1;
-    if start < 0 {
-        end -= start;
-        start = 0;
-    }
-    if end >= count as i32 {
-        let shift = end - (count as i32 - 1);
-        start -= shift;
-        end = count as i32 - 1;
-    }
-    start = start.max(0);
-    end = end.min(count as i32 - 1).max(start);
-    start as usize..=end as usize
 }
 
 fn paint_flat_card(target: &mut [u8], metrics: &Metrics, config: &Config) {
@@ -2231,21 +2304,6 @@ mod tests {
     }
 
     #[test]
-    fn visible_range_is_contiguous_and_never_repeats_an_index() {
-        for count in [1usize, 2, 5, 40] {
-            for center in [0.0f32, 0.5, 2.0, 20.0] {
-                let range = visible_range(count, center, 5);
-                let values: Vec<usize> = range.collect();
-                let mut unique = values.clone();
-                unique.sort();
-                unique.dedup();
-                assert_eq!(values.len(), unique.len());
-                assert!(values.iter().all(|index| *index < count));
-            }
-        }
-    }
-
-    #[test]
     fn stock_fonts_shape_different_lines() {
         use iceberg_core::fonts::{stock_font_dir, FontLibrary};
 
@@ -2290,6 +2348,8 @@ mod tests {
                 Rgba::new(255, 255, 255, 255),
                 500.0,
                 1,
+                false,
+                None,
             );
             widths.push(mask.width);
         }
