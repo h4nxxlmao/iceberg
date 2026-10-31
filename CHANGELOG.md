@@ -32,7 +32,8 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 ### Changed
 
 - Relicensed the project from MIT to **GPL-3.0-only**. Releases published before this change remain under the terms they were distributed with.
-- The default widget font is now Lato instead of Segoe UI Variable Display. Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
+- The default widget font is now Poppins instead of Lato, with 19 px type, 1.35 leading, tighter tracking, and a 360 ms transition. Lato remains available in the picker. Config v3 migrates an unpinned Lato config to Poppins.
+- Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
 - The Paper preset uses Abril Fatface and Quiet uses Space Mono.
 - The Frost preset uses ink text on the light ice surface for contrast.
 - Text masks are composited with their premultiplied alpha, fixing thin antialiased edges.
@@ -59,6 +60,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Source changes re-query the current SMTC session immediately instead of waiting for the next media event.
 - A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
 - LRCLIB 503 and 429 responses are retried with backoff. If a lyric request still fails, the widget retries automatically at 10 s, 30 s, and 60 s instead of showing a permanent “Lyrics unavailable” state. Settings now shows the real reason, such as “LRCLIB is busy”.
+- A line transition now requests its own redraw immediately instead of waiting for an unrelated SMTC or progress event. Playback updates animate the new line instead of snapping, so every line change uses the 360 ms slide/fade.
 
 ### Performance
 

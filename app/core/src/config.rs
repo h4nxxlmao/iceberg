@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::util::{clamp_f64, clamp_i64, replace_file, sanitize_apps, sanitize_hex};
 
-pub const CONFIG_VERSION: u32 = 2;
+pub const CONFIG_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -276,21 +276,21 @@ impl Default for Background {
 impl Default for Typography {
     fn default() -> Self {
         Self {
-            font_family: "Lato".to_string(),
-            font_size: 17.0,
+            font_family: "Poppins".to_string(),
+            font_size: 19.0,
             weight: 500,
             italic: false,
-            letter_spacing: 0.0,
-            line_height: 1.4,
+            letter_spacing: -0.012,
+            line_height: 1.35,
             align: Align::Left,
             case: TextCase::Original,
             active_color: "#f1ede3".to_string(),
-            inactive_opacity: 0.38,
+            inactive_opacity: 0.34,
             shadow: true,
             outline: false,
             visible_lines: 5,
             transition: TransitionStyle::Slide,
-            transition_ms: 220,
+            transition_ms: 360,
         }
     }
 }
@@ -397,6 +397,17 @@ impl Config {
                 }
             }
         }
+        if self.version < 3
+            && self.active_preset.is_none()
+            && self.typography.font_family.eq_ignore_ascii_case("lato")
+        {
+            self.typography.font_family = "Poppins".to_string();
+            self.typography.font_size = 19.0;
+            self.typography.line_height = 1.35;
+            self.typography.letter_spacing = -0.012;
+            self.typography.inactive_opacity = 0.34;
+            self.typography.transition_ms = 360;
+        }
         self.version = CONFIG_VERSION;
         if self.active_preset.as_deref() == Some("") {
             self.active_preset = None;
@@ -439,7 +450,7 @@ impl Config {
         let typography = &mut self.typography;
         typography.font_family = typography.font_family.trim().chars().take(120).collect();
         if typography.font_family.is_empty() {
-            typography.font_family = "Lato".to_string();
+            typography.font_family = "Poppins".to_string();
         }
         typography.font_size = clamp_f64(typography.font_size, 12.0, 40.0);
         typography.weight = typography.weight.clamp(300, 800);
@@ -611,7 +622,9 @@ mod tests {
         assert_eq!(config.version, CONFIG_VERSION);
         assert_eq!(config.mode, WidgetMode::Card);
         assert_eq!(config.background.kind, BackgroundKind::Solid);
-        assert_eq!(config.typography.inactive_opacity, 0.38);
+        assert_eq!(config.typography.inactive_opacity, 0.34);
+        assert_eq!(config.typography.font_family, "Poppins");
+        assert_eq!(config.typography.font_size, 19.0);
         assert_eq!(config.layout.scale, 100);
         assert_eq!(config.lyrics.offset_ms, 0);
         assert!(config.effective().typography.transition != TransitionStyle::Off);
@@ -658,7 +671,7 @@ mod tests {
         assert_eq!(config.background.border_color, "#ffffff");
         assert_eq!(config.background.accent_color, "#f07a4f");
         assert_eq!(config.background.border_width, 4.0);
-        assert_eq!(config.typography.font_family, "Lato");
+        assert_eq!(config.typography.font_family, "Poppins");
         assert_eq!(config.typography.font_size, 12.0);
         assert_eq!(config.typography.weight, 300);
         assert_eq!(config.typography.inactive_opacity, 0.85);
@@ -726,8 +739,20 @@ mod tests {
     fn missing_fields_fall_back_to_defaults() {
         let config: Config = serde_json::from_str(r#"{"mode":"island"}"#).unwrap();
         assert_eq!(config.mode, WidgetMode::Island);
-        assert_eq!(config.typography.font_size, 17.0);
+        assert_eq!(config.typography.font_size, 19.0);
         assert_eq!(config.version, CONFIG_VERSION);
+    }
+
+    #[test]
+    fn version_two_unpinned_lato_moves_to_poppins() {
+        let mut config = Config::default();
+        config.version = 2;
+        config.active_preset = None;
+        config.typography.font_family = "Lato".to_string();
+        config.migrate();
+        assert_eq!(config.typography.font_family, "Poppins");
+        assert_eq!(config.typography.font_size, 19.0);
+        assert_eq!(config.typography.transition_ms, 360);
     }
 
     #[test]

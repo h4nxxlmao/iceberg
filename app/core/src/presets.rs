@@ -46,7 +46,7 @@ pub fn builtin_presets() -> Vec<Preset> {
             id: "ink".to_string(),
             name: "Ink".to_string(),
             background: background(BackgroundKind::Solid, "#0b0f11"),
-            typography: typography(17.0, "#f1ede3", 0.38),
+            typography: typography(19.0, "#f1ede3", 0.34),
         },
         Preset {
             id: "paper".to_string(),

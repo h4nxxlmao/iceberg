@@ -1097,7 +1097,7 @@ impl App {
             } else {
                 self.cover_retry_at = Some(Instant::now() + Duration::from_millis(900));
             }
-            self.recompute_index(false);
+            self.recompute_index(true);
             self.update_timers();
             self.update_status();
             if let Some(window) = &self.window {
@@ -1229,6 +1229,15 @@ impl App {
         let previous = self.current_index;
         let target = Some(index);
         if previous != target {
+            if self
+                .transition
+                .map(|transition| transition.to.round() as usize == index)
+                .unwrap_or(false)
+            {
+                self.update_status();
+                self.update_timers();
+                return;
+            }
             let can_animate = animate
                 && effective.typography.transition != TransitionStyle::Off
                 && previous
@@ -1248,6 +1257,9 @@ impl App {
                 self.current_index = target;
                 self.transition = None;
                 self.transition_end = None;
+            }
+            if let Some(window) = &self.window {
+                window.request_redraw();
             }
         }
         self.update_status();

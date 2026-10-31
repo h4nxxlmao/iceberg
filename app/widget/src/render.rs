@@ -2181,10 +2181,15 @@ mod tests {
             baseline_offset_em: 0.04,
             line_height_multiplier: 0.9,
         };
-        let metrics = compute_metrics(&config(), WidgetMode::Card, Scale::new(1.0, 100), font);
-        assert!((metrics.font_size - 21.25).abs() < 0.001);
-        assert!((metrics.baseline_offset - 0.68).abs() < 0.001);
-        assert!((metrics.line_height - 17.0 * 1.4).abs() < 0.001);
+        let config = config();
+        let metrics = compute_metrics(&config, WidgetMode::Card, Scale::new(1.0, 100), font);
+        assert!((metrics.font_size - config.typography.font_size * 1.25).abs() < 0.001);
+        assert!((metrics.baseline_offset - config.typography.font_size * 0.04).abs() < 0.001);
+        assert!(
+            (metrics.line_height - config.typography.font_size * config.typography.line_height)
+                .abs()
+                < 0.001
+        );
     }
 
     #[test]
