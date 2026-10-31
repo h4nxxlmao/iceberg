@@ -7,6 +7,9 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 ### Added
 
 - Native widget workspace (`app/core`, `app/widget`) with per-monitor DPI v2, exact tool-window styles, event-driven SMTC, LRCLIB enhanced word timings, font metric normalization, six presets, cached background and lyric layers, and a lazy tray-only mode.
+- Music source selection for Spotify, Apple Music, a custom SMTC app, or an explicit Any app. The default is Spotify, so browser and YouTube sessions are not followed unless selected.
+- Force a fresh lyric lookup from Settings. It bypasses the cached not-found result and retries LRCLIB with a free-text fallback. The current line can be copied from the same panel.
+- A source label in the settings status and an explicit loading/not-found/error lyric state instead of a misleading demo line.
 - Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).
 - Phase A review screenshots and release measurements in [docs/phase-a/](docs/phase-a/).
 - Eight bundled OFL font families (Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC, Space Mono, Varela Round, Lobster) with lazy per-family loading and licenses in `app/assets/fonts`.
@@ -39,6 +42,9 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - The tray button now uses the bundled project icon.
 - Settings changes are saved by the widget after validation; the settings focus refresh no longer overwrites an edit that began while the refresh was in flight.
 - The settings font picker uses native specimens from the widget rather than WebView font faces.
+- The settings layout uses one scroll container, compact surface/preset/font selectors, a native source dropdown, and collapsed fine-tuning rows. Per-control descriptions and the decorative accent controls are gone.
+- The player progress rule and active-line marker use the active text color instead of the warm accent, so the orange rule is removed.
+- Font specimens use a fixed short line and a dark preview surface, so every family is legible and no longer clips inside the tile.
 
 ### Fixed
 
@@ -49,6 +55,9 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Settings controls are no longer replaced by focus or font-preview refreshes mid-click; font specimens render off the Tauri thread and update in place.
 - A stuck line transition no longer prevents the active lyric from advancing. While Settings is open, the preview re-queries SMTC until a real track replaces the demo, and the settings status follows the widget.
 - Album cover fetches retry when the first SMTC thumbnail is unavailable, and a late cover updates the existing track instead of being dropped.
+- The settings window no longer shows two vertical scrollbars. The layout owns the viewport and the sheet is the only scroll container.
+- Source changes re-query the current SMTC session immediately instead of waiting for the next media event.
+- A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
 
 ### Performance
 

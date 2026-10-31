@@ -6,6 +6,7 @@ type BackgroundKind = "solid" | "transparent" | "acrylic" | "ice" | "liquid";
 type Align = "left" | "center";
 type TextCase = "original" | "upper" | "lower";
 type Transition = "slide" | "fade" | "off";
+type SourceMode = "spotify" | "apple_music" | "custom" | "any";
 type Anchor =
   | "top_left"
   | "top_center"
@@ -88,6 +89,8 @@ interface Behavior {
   battery_saver: boolean;
   reduce_motion: boolean;
   show_progress: boolean;
+  source: SourceMode;
+  source_custom: string;
   preferred_apps: string[];
   ignored_apps: string[];
 }
@@ -139,6 +142,8 @@ interface IpcStatus {
   track?: TrackInfo | null;
   line?: string | null;
   line_index?: number | null;
+  lyrics_status?: string;
+  lyrics_message?: string | null;
 }
 
 interface FontInfo {
@@ -186,7 +191,6 @@ type SectionId =
 interface SectionInfo {
   id: SectionId;
   label: string;
-  description: string;
   icon: string;
 }
 
@@ -194,53 +198,46 @@ const SECTIONS: SectionInfo[] = [
   {
     id: "appearance",
     label: "Appearance",
-    description: "Surface, presets, and the shape of the widget.",
     icon: "surface",
   },
   {
     id: "typography",
     label: "Typography",
-    description: "Type, color, and line behavior.",
     icon: "type",
   },
   {
     id: "layout",
     label: "Layout",
-    description: "Where the widget sits and how large it is.",
     icon: "layout",
   },
   {
     id: "lyrics",
     label: "Lyrics",
-    description: "Sync offset and unsynced behavior.",
     icon: "lyrics",
   },
   {
     id: "playback",
     label: "Playback",
-    description: "Desktop behavior that affects the widget.",
     icon: "play",
   },
   {
     id: "hotkeys",
     label: "Hotkeys",
-    description: "Global shortcuts. They work while Iceberg is in the tray.",
     icon: "keys",
   },
   {
     id: "about",
     label: "About",
-    description: "Version, reset, and project details.",
     icon: "info",
   },
 ];
 
-const SURFACES: { kind: BackgroundKind; name: string; description: string }[] = [
-  { kind: "solid", name: "Solid", description: "An opaque mineral fill." },
-  { kind: "transparent", name: "Transparent", description: "The desktop shows through." },
-  { kind: "acrylic", name: "Acrylic", description: "Blurred wallpaper with a tint." },
-  { kind: "ice", name: "Ice", description: "Frosted, cool, and diffused." },
-  { kind: "liquid", name: "Liquid", description: "Refracted wallpaper with a bevel." },
+const SURFACES: { kind: BackgroundKind; name: string }[] = [
+  { kind: "solid", name: "Solid" },
+  { kind: "transparent", name: "Transparent" },
+  { kind: "acrylic", name: "Acrylic" },
+  { kind: "ice", name: "Ice" },
+  { kind: "liquid", name: "Liquid" },
 ];
 
 const ANCHORS: Anchor[] = [
@@ -273,6 +270,7 @@ interface UiState {
   version: string;
 }
 
+const FONT_SPECIMEN = "The night city grows";
 const state: UiState = {
   config: null,
   presets: [],
@@ -320,11 +318,6 @@ function escapeAttr(value: unknown): string {
   return escapeHtml(value);
 }
 
-function currentLine(): string {
-  const line = state.status.line?.trim();
-  return line && line.length > 0 ? line : "The night city grows";
-}
-
 function icon(name: string): string {
   const paths: Record<string, string> = {
     surface:
@@ -366,6 +359,23 @@ function ms(value: number): string {
 
 function currentTrack(): TrackInfo | null {
   return state.status.track ?? null;
+}
+
+function sourceLabel(source: string | undefined): string {
+  if (!source) {
+    return "";
+  }
+  const lower = source.toLowerCase();
+  if (lower.includes("iceberg demo")) {
+    return "Demo preview";
+  }
+  if (lower.includes("spotify")) {
+    return "Spotify";
+  }
+  if (lower.includes("applemusic") || lower.includes("apple music") || lower.includes("itunes")) {
+    return "Apple Music";
+  }
+  return "Media app";
 }
 
 function sectionById(id: string): SectionInfo | undefined {
@@ -432,14 +442,12 @@ function renderShell(): void {
         </nav>
         <div class="rail-foot">
           <div class="status" id="widget-status"></div>
-          <div class="rail-note">The widget is the live preview.</div>
         </div>
       </aside>
       <main class="sheet">
         <header class="sheet-head">
           <div class="head-copy">
             <h1 id="section-title"></h1>
-            <p id="section-description"></p>
           </div>
           <div class="head-actions">
             <span class="save-state" id="save-state"></span>
@@ -476,12 +484,8 @@ function updateChrome(): void {
   }
   const section = sectionById(state.section);
   const title = document.getElementById("section-title");
-  const description = document.getElementById("section-description");
   if (title) {
     title.textContent = section?.label ?? "Settings";
-  }
-  if (description) {
-    description.textContent = section?.description ?? "";
   }
   updateStatus();
   updateSaveState();
@@ -494,13 +498,30 @@ function updateStatus(): void {
     return;
   }
   const track = currentTrack();
-  const line = currentLine();
+  const rawLine = state.status.line?.trim();
+  const line =
+    rawLine ||
+    (state.status.lyrics_status === "loading"
+      ? "Looking up lyrics"
+      : state.status.lyrics_status === "error"
+        ? "Lyrics unavailable"
+        : state.status.lyrics_status === "not_found"
+          ? "No lyrics found"
+          : state.status.lyrics_status === "plain"
+            ? "Plain lyrics"
+            : state.status.lyrics_status === "instrumental"
+              ? "Instrumental"
+              : track
+                ? "No lyric line"
+                : "Preview on the desktop");
   const demo = track?.source_app === "Iceberg demo";
+  const source = track ? sourceLabel(track.source_app) : "";
   element.innerHTML = `
     <span class="status-mark ${track ? "is-live" : ""}" aria-hidden="true"></span>
     <div class="status-copy">
       <div class="status-title">${escapeHtml(track ? track.title : "Widget ready")}${demo ? '<span class="status-demo">demo</span>' : ""}</div>
-      <div class="status-line">${escapeHtml(track ? line : "Preview on the desktop")}</div>
+      ${source && !demo ? `<div class="status-source">${escapeHtml(source)}</div>` : ""}
+      <div class="status-line">${escapeHtml(line)}</div>
     </div>
   `;
 }
@@ -570,7 +591,7 @@ function renderSection(): void {
               ? renderPlayback(config)
               : state.section === "hotkeys"
                 ? renderHotkeys(config)
-                : renderAbout(config);
+                : renderAbout();
   bindCommon();
   switch (state.section) {
     case "appearance":
@@ -602,7 +623,6 @@ function renderSection(): void {
 function sectionTools(section: SectionId): string {
   return `
     <div class="section-tools">
-      <span>Changes apply to the live widget.</span>
       <button class="text-button" type="button" data-reset="${section}">Reset section</button>
     </div>
   `;
@@ -730,19 +750,18 @@ function renderAppearance(config: Config): string {
     ${sectionTools("appearance")}
     ${group(
       "Surface",
-      "The textured surfaces sample the Windows wallpaper through the native renderer.",
+      "",
       `<div class="surface-list">${SURFACES.map((surface) => {
         const selected = background.kind === surface.kind;
         return `<button class="surface-option ${selected ? "is-selected" : ""}" type="button" data-surface="${surface.kind}" aria-pressed="${selected}">
           <span class="surface-image"><img data-image="surface:${surface.kind}" alt="" loading="lazy"></span>
-          <span class="surface-copy"><span class="surface-name">${surface.name}</span><span class="surface-desc">${surface.description}</span></span>
-          <span class="surface-check" aria-hidden="true"></span>
+          <span class="surface-copy"><span class="surface-name">${surface.name}</span></span>
         </button>`;
       }).join("")}</div>`,
     )}
     ${group(
       "Presets",
-      "Native previews. Applying one sets the surface and type together.",
+      "",
       `<div class="preset-grid">${state.presets.map((preset) => {
         const selected = config.active_preset === preset.id;
         return `<button class="preset ${selected ? "is-selected" : ""}" type="button" data-preset="${preset.id}" aria-pressed="${selected}">
@@ -751,28 +770,21 @@ function renderAppearance(config: Config): string {
         </button>`;
       }).join("")}</div>`,
     )}
-    ${group("Surface controls", "", surfaceControls.join(""))}
-    ${group(
-      "Shape",
-      "The shell stays small and square. Hairlines define the edge.",
-      [
-        rangeRow("bg-radius", "Radius", "Corner radius in layout pixels.", 0, 48, 1, background.radius, (value) => `${Math.round(value)} px`),
-        rangeRow("bg-padding", "Padding", "Space between the shell and the content.", 4, 48, 1, background.padding, (value) => `${Math.round(value)} px`),
-        rangeRow("bg-border-width", "Border", "Hairline width.", 0, 4, 0.1, background.border_width, (value) => `${value.toFixed(1)} px`),
-        colorRow("bg-border-color", "Border color", "The edge color.", background.border_color),
-        rangeRow("bg-border-opacity", "Border opacity", "The strength of the hairline.", 0, 1, 0.01, background.border_opacity, pct),
-        checkRow("bg-shadow", "Drop shadow", "A quiet shadow around the shell.", background.shadow),
-        rangeRow("bg-shadow-opacity", "Shadow strength", "Only used when the shadow is on.", 0, 1, 0.01, background.shadow_opacity, pct),
-      ].join(""),
-    )}
-    ${group(
-      "Accent",
-      "One warm signal mark. It carries the active lyric and the progress rule.",
-      [
-        colorRow("accent-color", "Accent", "Used for the active line, marker, and focus.", background.accent_color),
-        checkRow("accent-from-art", "Use album art color", "The track's extracted hue replaces the accent for that song.", background.accent_from_art),
-      ].join(""),
-    )}
+    <details class="advanced">
+      <summary>Surface details</summary>
+      <div class="details-body">
+        ${surfaceControls.join("")}
+        ${[
+          rangeRow("bg-radius", "Radius", "", 0, 48, 1, background.radius, (value) => `${Math.round(value)} px`),
+          rangeRow("bg-padding", "Padding", "", 4, 48, 1, background.padding, (value) => `${Math.round(value)} px`),
+          rangeRow("bg-border-width", "Border", "", 0, 4, 0.1, background.border_width, (value) => `${value.toFixed(1)} px`),
+          colorRow("bg-border-color", "Border color", "", background.border_color),
+          rangeRow("bg-border-opacity", "Border opacity", "", 0, 1, 0.01, background.border_opacity, pct),
+          checkRow("bg-shadow", "Drop shadow", "", background.shadow),
+          rangeRow("bg-shadow-opacity", "Shadow strength", "", 0, 1, 0.01, background.shadow_opacity, pct),
+        ].join("")}
+      </div>
+    </details>
   `;
 }
 
@@ -802,29 +814,27 @@ function renderTypography(config: Config): string {
     ${sectionTools("typography")}
     ${group(
       "Font",
-      "The picker renders the current lyric line in each installed family.",
+      "",
       `${fontTiles(config)}
        <div class="upload-row">
          <button class="button secondary" id="upload-font" type="button" ${state.uploading ? "disabled" : ""}>
            ${icon("upload")} ${state.uploading ? "Adding font..." : "Add font"}
          </button>
-         <span class="fine-print">.ttf or .otf. It stays on this machine.</span>
+         <span class="fine-print">.ttf or .otf</span>
        </div>`,
     )}
     ${group(
-      "Size and spacing",
+      "Type",
       "",
       [
-        rangeRow("type-size", "Size", "Base lyric size in layout pixels.", 12, 40, 0.5, typography.font_size, (value) => `${value.toFixed(1)} px`),
-        rangeRow("type-weight", "Weight", "The nearest bold face, with a synthetic embolden when a family has only one weight.", 300, 800, 50, typography.weight, (value) => String(Math.round(value))),
-        rangeRow("type-line-height", "Line height", "Spacing on the user's grid.", 1, 2, 0.05, typography.line_height, (value) => value.toFixed(2)),
-        rangeRow("type-letter-spacing", "Letter spacing", "Tracking in em.", -0.05, 0.2, 0.01, typography.letter_spacing, (value) => `${value.toFixed(2)} em`),
-        checkRow("type-italic", "Italic", "A synthetic shear so it works for every family.", typography.italic),
-        choiceRow("type-align", "Alignment", "Where lyric lines sit in the card.", [
+        rangeRow("type-size", "Size", "", 12, 40, 0.5, typography.font_size, (value) => `${value.toFixed(1)} px`),
+        rangeRow("type-weight", "Weight", "", 300, 800, 50, typography.weight, (value) => String(Math.round(value))),
+        rangeRow("type-line-height", "Line height", "", 1, 2, 0.05, typography.line_height, (value) => value.toFixed(2)),
+        choiceRow("type-align", "Alignment", "", [
           { value: "left", label: "Left" },
           { value: "center", label: "Center" },
         ], typography.align),
-        choiceRow("type-case", "Case", "Applied to the lyric text only.", [
+        choiceRow("type-case", "Case", "", [
           { value: "original", label: "Original" },
           { value: "upper", label: "Upper" },
           { value: "lower", label: "Lower" },
@@ -835,30 +845,33 @@ function renderTypography(config: Config): string {
       "Color and lines",
       "",
       [
-        colorRow("type-active", "Active color", "The line being sung.", typography.active_color),
-        rangeRow("type-inactive", "Inactive opacity", "Past and upcoming lines.", 0.15, 0.85, 0.01, typography.inactive_opacity, pct),
-        rangeRow("type-visible", "Visible lines", "The lyric window, 3 to 7 lines.", 3, 7, 1, typography.visible_lines, (value) => String(Math.round(value))),
-        checkRow("type-shadow", "Text shadow", "A small shadow under the type.", typography.shadow),
-        checkRow("type-outline", "Text outline", "A hairline outline for busy desktops.", typography.outline),
+        colorRow("type-active", "Active color", "", typography.active_color),
+        rangeRow("type-visible", "Visible lines", "", 3, 7, 1, typography.visible_lines, (value) => String(Math.round(value))),
       ].join(""),
     )}
-    ${group(
-      "Transition",
-      "",
-      [
-        choiceRow("type-transition", "Style", "Slide moves the block; fade holds it; off jumps.", [
-          { value: "slide", label: "Slide" },
-          { value: "fade", label: "Fade" },
-          { value: "off", label: "Off" },
-        ], typography.transition),
-        rangeRow("type-duration", "Duration", "The time between lyric lines.", 100, 600, 10, typography.transition_ms, ms),
-      ].join(""),
-    )}
+    <details class="advanced">
+      <summary>Fine tuning</summary>
+      <div class="details-body">
+        ${[
+          rangeRow("type-letter-spacing", "Letter spacing", "", -0.05, 0.2, 0.01, typography.letter_spacing, (value) => `${value.toFixed(2)} em`),
+          checkRow("type-italic", "Italic", "", typography.italic),
+          rangeRow("type-inactive", "Inactive opacity", "", 0.15, 0.85, 0.01, typography.inactive_opacity, pct),
+          checkRow("type-shadow", "Text shadow", "", typography.shadow),
+          checkRow("type-outline", "Text outline", "", typography.outline),
+          choiceRow("type-transition", "Transition", "", [
+            { value: "slide", label: "Slide" },
+            { value: "fade", label: "Fade" },
+            { value: "off", label: "Off" },
+          ], typography.transition),
+          rangeRow("type-duration", "Duration", "", 100, 600, 10, typography.transition_ms, ms),
+        ].join("")}
+      </div>
+    </details>
     ${
       track
         ? group(
             "This track",
-            "A per-track font override sits above the global family.",
+            "",
             `<div class="inline-actions">
               <span class="inline-note">${escapeHtml(track.title)} — ${trackFont ? escapeHtml(trackFont) : "global font"}</span>
               <button class="button secondary small" type="button" data-track-font="set">Use current font</button>
@@ -882,11 +895,11 @@ function renderLayout(config: Config): string {
     ${sectionTools("layout")}
     ${group(
       "Mode",
-      "Shortcuts can cycle this too.",
+      "",
       choiceRow(
         "layout-mode",
         "Widget mode",
-        "Card is the standard lyric card. Lyrics is the wide line. Island is the compact bar.",
+        "",
         [
           { value: "card", label: "Card" },
           { value: "lyrics", label: "Lyrics" },
@@ -897,21 +910,21 @@ function renderLayout(config: Config): string {
     )}
     ${group(
       "Size",
-      "Scale changes the whole widget. Width changes the card.",
+      "",
       [
-        rangeRow("layout-scale", "Scale", "50% to 200%, compounded with the monitor DPI.", 50, 200, 1, config.layout.scale, (value) => `${Math.round(value)}%`),
-        rangeRow("layout-width", "Width", "Card width in layout pixels.", 240, 640, 1, config.layout.width, (value) => `${Math.round(value)} px`),
+        rangeRow("layout-scale", "Scale", "", 50, 200, 1, config.layout.scale, (value) => `${Math.round(value)}%`),
+        rangeRow("layout-width", "Width", "", 240, 640, 1, config.layout.width, (value) => `${Math.round(value)} px`),
       ].join(""),
     )}
     ${group(
       "Position",
-      "The widget remembers a position for each monitor and snaps near the screen edges.",
-      `<div class="anchor-wrap">${anchorGrid(config)}<div class="anchor-copy"><span class="fine-print">Choose an anchor, then nudge it with the offsets.</span></div></div>
+      "",
+      `<div class="anchor-wrap">${anchorGrid(config)}</div>
       <div class="row-pair">
-        ${rangeRow("layout-offset-x", "Horizontal offset", "Positive moves right.", -2000, 2000, 1, config.layout.offset_x, (value) => `${Math.round(value)} px`)}
-        ${rangeRow("layout-offset-y", "Vertical offset", "Positive moves down.", -2000, 2000, 1, config.layout.offset_y, (value) => `${Math.round(value)} px`)}
+        ${rangeRow("layout-offset-x", "Horizontal offset", "", -2000, 2000, 1, config.layout.offset_x, (value) => `${Math.round(value)} px`)}
+        ${rangeRow("layout-offset-y", "Vertical offset", "", -2000, 2000, 1, config.layout.offset_y, (value) => `${Math.round(value)} px`)}
       </div>
-      ${checkRow("layout-edge-snap", "Snap to screen edges", "A dragged widget settles into the nearest edge or corner.", config.behavior.edge_snap)}`,
+      ${checkRow("layout-edge-snap", "Snap to screen edges", "", config.behavior.edge_snap)}`,
     )}
   `;
 }
@@ -924,10 +937,10 @@ function renderLyrics(config: Config): string {
     ${sectionTools("lyrics")}
     ${group(
       "Global sync",
-      "Positive values show lyrics earlier. This applies to every track without its own offset.",
+      "",
       [
         rangeRow("lyrics-offset", "Offset", "", -1000, 1000, 10, config.lyrics.offset_ms, (value) => `${Math.round(value)} ms`),
-        choiceRow("lyrics-unsynced", "Plain lyrics", "What to show when only plain text exists.", [
+        choiceRow("lyrics-unsynced", "Plain lyrics", "", [
           { value: "static", label: "Static page" },
           { value: "hide", label: "Hide" },
         ], config.lyrics.unsynced),
@@ -939,7 +952,7 @@ function renderLyrics(config: Config): string {
             "This track",
             demo
               ? "Demo preview. Start a track in Spotify and this switches to the real SMTC session automatically."
-              : "Per-track offsets are applied on top of the global offset.",
+              : "",
             `<div class="inline-actions">
               <span class="inline-note">${escapeHtml(track.title)} — ${trackOffset >= 0 ? "+" : ""}${trackOffset} ms${demo ? " · demo preview" : ""}</span>
               <button class="button secondary small" type="button" data-track-offset="-100">−100 ms</button>
@@ -949,6 +962,15 @@ function renderLyrics(config: Config): string {
           )
         : ""
     }
+    ${group(
+      "Lyrics lookup",
+      "",
+      `<div class="inline-actions">
+        <span class="inline-note">${state.status.line ? escapeHtml(state.status.line) : "No current lyric line"}</span>
+        <button class="button secondary small" id="retry-lyrics" type="button">Look up again</button>
+        <button class="button ghost small" id="copy-lyric" type="button" ${state.status.line ? "" : "disabled"}>Copy line</button>
+      </div>`,
+    )}
   `;
 }
 
@@ -957,30 +979,67 @@ function renderPlayback(config: Config): string {
   return `
     ${sectionTools("playback")}
     ${group(
+      "Music source",
+      "Only the selected player is followed. Browser tabs and YouTube are ignored unless you explicitly choose Any app.",
+      `${row(
+        "Music app",
+        "",
+        `<select id="behavior-source" class="select">
+          <option value="spotify" ${behavior.source === "spotify" ? "selected" : ""}>Spotify</option>
+          <option value="apple_music" ${behavior.source === "apple_music" ? "selected" : ""}>Apple Music</option>
+          <option value="custom" ${behavior.source === "custom" ? "selected" : ""}>Custom</option>
+          <option value="any" ${behavior.source === "any" ? "selected" : ""}>Any app</option>
+        </select>`,
+        "behavior-source",
+      )}
+      ${
+        behavior.source === "custom"
+          ? row(
+              "Custom match",
+              "Windows source id or a unique part, for example MusicBee.",
+              `<input id="behavior-source-custom" class="source-input" type="text" spellcheck="false" autocomplete="off" value="${escapeAttr(behavior.source_custom)}" placeholder="MusicBee">`,
+              "behavior-source-custom",
+            )
+          : ""
+      }
+      ${
+        behavior.source === "any"
+          ? '<p class="group-note">Any app can include browser sessions. Choose Spotify or Apple Music if you do not want YouTube.</p>'
+          : ""
+      }`,
+    )}
+    ${group(
       "Widget behavior",
-      "These switches apply immediately.",
+      "",
       [
-        checkRow("behavior-progress", "Show progress bar", "A stepped rule under the track. It does not animate continuously.", behavior.show_progress),
-        checkRow("behavior-click-through", "Click-through", "Mouse input passes through the widget. Use the hotkey or tray to turn it off.", behavior.click_through),
-        checkRow("behavior-fullscreen", "Hide on fullscreen", "Hide while another app is fullscreen on the active monitor.", behavior.hide_on_fullscreen),
-        checkRow("behavior-startup", "Start with Windows", "Launch Iceberg when you sign in. It waits in the tray.", behavior.start_with_windows),
-        checkRow("behavior-reduce-motion", "Reduce motion", "Turns off lyric transitions.", behavior.reduce_motion),
-        checkRow("behavior-battery", "Battery saver", "Uses a solid surface, no transitions, and no text or shell shadow.", behavior.battery_saver),
-        rangeRow("behavior-pause-hide", "Hide when paused", "Destroy the widget window after this many seconds. Zero keeps it visible.", 0, 300, 5, behavior.pause_hide_seconds, (value) => (value === 0 ? "Never" : `${Math.round(value)} s`)),
+        checkRow("behavior-progress", "Show progress bar", "", behavior.show_progress),
+        checkRow("behavior-click-through", "Click-through", "", behavior.click_through),
+        checkRow("behavior-startup", "Start with Windows", "", behavior.start_with_windows),
       ].join(""),
     )}
+    <details class="advanced">
+      <summary>Desktop fine tuning</summary>
+      <div class="details-body">
+        ${[
+          checkRow("behavior-fullscreen", "Hide on fullscreen", "", behavior.hide_on_fullscreen),
+          checkRow("behavior-reduce-motion", "Reduce motion", "", behavior.reduce_motion),
+          checkRow("behavior-battery", "Battery saver", "", behavior.battery_saver),
+          rangeRow("behavior-pause-hide", "Hide when paused", "", 0, 300, 5, behavior.pause_hide_seconds, (value) => (value === 0 ? "Never" : `${Math.round(value)} s`)),
+        ].join("")}
+      </div>
+    </details>
   `;
 }
 
 function renderHotkeys(config: Config): string {
-  const fields: { key: keyof Hotkeys; label: string; description: string }[] = [
-    { key: "toggle", label: "Show / hide", description: "Show or hide the widget." },
-    { key: "click_through", label: "Click-through", description: "Toggle mouse pass-through." },
-    { key: "offset_up", label: "Lyrics +100 ms", description: "Shift the current track's lyrics earlier." },
-    { key: "offset_down", label: "Lyrics −100 ms", description: "Shift the current track's lyrics later." },
-    { key: "mode", label: "Cycle mode", description: "Card, Lyrics, Island." },
-    { key: "peek", label: "Quick peek", description: "Show the widget for three seconds." },
-    { key: "settings", label: "Open settings", description: "Open this window." },
+  const fields: { key: keyof Hotkeys; label: string }[] = [
+    { key: "toggle", label: "Show / hide" },
+    { key: "click_through", label: "Click-through" },
+    { key: "offset_up", label: "Lyrics +100 ms" },
+    { key: "offset_down", label: "Lyrics −100 ms" },
+    { key: "mode", label: "Cycle mode" },
+    { key: "peek", label: "Quick peek" },
+    { key: "settings", label: "Open settings" },
   ];
   return `
     ${sectionTools("hotkeys")}
@@ -991,7 +1050,7 @@ function renderHotkeys(config: Config): string {
         .map(
           (field) => `
             <div class="hotkey-row">
-              <div class="row-copy"><label for="hotkey-${field.key}">${field.label}</label><p>${field.description}</p></div>
+              <div class="row-copy"><label for="hotkey-${field.key}">${field.label}</label></div>
               <input id="hotkey-${field.key}" class="hotkey-input" type="text" spellcheck="false" autocomplete="off" value="${escapeAttr(config.hotkeys[field.key])}" data-hotkey="${field.key}">
             </div>`,
         )
@@ -1000,22 +1059,21 @@ function renderHotkeys(config: Config): string {
   `;
 }
 
-function renderAbout(config: Config): string {
+function renderAbout(): string {
   return `
     <div class="about-block">
       <div class="about-brand">Iceberg</div>
-      <p class="about-copy">A quiet now-playing and synced-lyrics widget for Windows. Version ${escapeHtml(state.version)}.</p>
-      <p class="about-copy">GPL-3.0-only licensed. ${escapeHtml(config.mode)} mode · ${escapeHtml(config.background.kind)} surface.</p>
-      <p class="about-copy fine-print">The widget keeps running in the tray when this window closes.</p>
+      <p class="about-copy">Version ${escapeHtml(state.version)} · GPL-3.0-only</p>
+      <p class="about-copy fine-print">github.com/h4nxxlmao/iceberg</p>
       <div class="about-actions">
         <button class="button secondary" id="close-settings" type="button">Close settings</button>
       </div>
     </div>
     ${group(
       "Reset",
-      "Preset selection and per-track overrides are cleared when you reset everything.",
+      "",
       `<div class="inline-actions">
-        <span class="inline-note">${state.resetAllArmed ? "This will replace every setting with the defaults." : "Reset every setting, including per-track offsets and font overrides."}</span>
+        <span class="inline-note">${state.resetAllArmed ? "This replaces every setting with its default." : "Clears settings and per-track overrides."}</span>
         <button class="button ${state.resetAllArmed ? "danger" : "secondary"} small" id="reset-all" type="button">${state.resetAllArmed ? "Confirm reset" : "Reset everything"}</button>
         ${state.resetAllArmed ? '<button class="button ghost small" id="reset-cancel" type="button">Cancel</button>' : ""}
       </div>`,
@@ -1255,9 +1313,57 @@ function bindLyrics(config: Config): void {
       renderSection();
     });
   }
+  document.getElementById("retry-lyrics")?.addEventListener("click", () => {
+    void retryLyrics();
+  });
+  document.getElementById("copy-lyric")?.addEventListener("click", () => {
+    void copyCurrentLine();
+  });
+}
+
+async function retryLyrics(): Promise<void> {
+  try {
+    await invoke("retry_lyrics");
+    showBanner("Looking up lyrics again.", "info");
+  } catch (error) {
+    showBanner(String(error));
+  }
+}
+
+async function copyCurrentLine(): Promise<void> {
+  const line = state.status.line?.trim();
+  if (!line) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(line);
+    showBanner("Current lyric copied.", "info");
+  } catch (error) {
+    showBanner(`Could not copy the lyric: ${String(error)}`);
+  }
 }
 
 function bindPlayback(config: Config): void {
+  const sourceSelect = document.getElementById("behavior-source") as HTMLSelectElement | null;
+  const applySource = () => {
+    if (!sourceSelect) {
+      return;
+    }
+    const value = sourceSelect.value as SourceMode;
+    edit(() => {
+      config.behavior.source = value;
+      config.behavior.preferred_apps = [];
+    });
+    renderSection();
+  };
+  sourceSelect?.addEventListener("change", applySource);
+  sourceSelect?.addEventListener("input", applySource);
+  const customSource = document.getElementById("behavior-source-custom") as HTMLInputElement | null;
+  customSource?.addEventListener("change", () => {
+    edit(() => {
+      config.behavior.source_custom = customSource.value.trim();
+    });
+  });
   bindCheck("behavior-progress", (value) => { config.behavior.show_progress = value; });
   bindCheck("behavior-click-through", (value) => { config.behavior.click_through = value; });
   bindCheck("behavior-fullscreen", (value) => { config.behavior.hide_on_fullscreen = value; });
@@ -1431,7 +1537,7 @@ async function revealWidget(): Promise<void> {
 }
 
 async function ensureFontPreviews(): Promise<void> {
-  const line = currentLine();
+  const line = FONT_SPECIMEN;
   if (
     fontPreviewRequest ||
     (state.fontPreviewLine === line &&

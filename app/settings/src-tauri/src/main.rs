@@ -32,6 +32,7 @@ fn main() {
             commands::preset_image,
             commands::surface_image,
             commands::show_widget,
+            commands::retry_lyrics,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

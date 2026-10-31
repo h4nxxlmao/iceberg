@@ -56,6 +56,7 @@ html,
 body {
   margin: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -104,6 +105,8 @@ a {
 .layout {
   display: grid;
   grid-template-columns: 196px minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -219,6 +222,13 @@ a {
   font-weight: 400;
 }
 
+.status-source {
+  margin-top: 1px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
 .status-line {
   margin-top: 2px;
   color: var(--muted);
@@ -233,8 +243,10 @@ a {
 
 .sheet {
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow-y: auto;
-  padding: 34px 40px 56px;
+  padding: 32px 38px 48px;
 }
 
 .sheet-head {
@@ -381,9 +393,9 @@ a {
 .section-tools {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
-  padding: 8px 0 13px;
+  padding: 4px 0 12px;
   border-bottom: 1px solid var(--line);
   color: var(--faint);
   font-size: 11px;
@@ -401,18 +413,11 @@ a {
 }
 
 .group {
-  padding: 22px 0 8px;
+  padding: 18px 0 6px;
 }
 
 .group + .group {
   border-top: 1px solid var(--line);
-}
-
-.group-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
 }
 
 .group-head h2 {
@@ -424,7 +429,7 @@ a {
 
 .group-note {
   max-width: 640px;
-  margin: 5px 0 4px;
+  margin: 4px 0 2px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -432,10 +437,10 @@ a {
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(190px, 300px);
-  gap: 24px;
+  gap: 18px;
   align-items: center;
-  min-height: 48px;
-  padding: 9px 0;
+  min-height: 38px;
+  padding: 6px 0;
   border-top: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
 }
 
@@ -456,10 +461,7 @@ a {
 }
 
 .row-copy p {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.4;
+  display: none;
 }
 
 .row-control {
@@ -557,6 +559,25 @@ input[type="number"] {
   font-size: 12px;
 }
 
+.source-input {
+  width: 220px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.select {
+  width: 180px;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
 input[type="text"]:focus,
 input[type="number"]:focus {
   border-color: var(--accent);
@@ -567,8 +588,8 @@ input[type="number"]:focus {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  min-height: 48px;
-  padding: 9px 0;
+  min-height: 36px;
+  padding: 6px 0;
   border-top: 1px solid color-mix(in srgb, var(--line) 64%, transparent);
   cursor: pointer;
 }
@@ -615,8 +636,50 @@ input[type="number"]:focus {
 }
 
 .check-desc {
+  display: none;
+}
+
+details.advanced {
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--line);
+}
+
+details.advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+details.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.advanced > summary::before {
+  content: "+";
+  width: 12px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+details.advanced[open] > summary::before {
+  content: "−";
+}
+
+details.advanced > summary:hover {
+  color: var(--ink);
+}
+
+.details-body {
+  margin-top: 8px;
+}
+
+.details-body > .row:first-child,
+.details-body > .check-row:first-child {
+  border-top: 0;
 }
 
 .choice-group {
@@ -649,38 +712,38 @@ input[type="number"]:focus {
 }
 
 .surface-list {
-  display: flex;
-  flex-direction: column;
-  margin-top: 4px;
-  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .surface-option {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 14px;
-  min-height: 70px;
-  padding: 10px 8px 10px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
   text-align: left;
 }
 
 .surface-option:hover {
-  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  border-color: var(--ink);
 }
 
 .surface-option.is-selected {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: var(--accent);
 }
 
 .surface-image {
   display: block;
-  width: 96px;
-  height: 60px;
+  width: 100%;
+  aspect-ratio: 16 / 10;
   overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 2px;
+  border: 1px solid var(--line);
+  border-radius: 1px;
   background: var(--field);
 }
 
@@ -699,48 +762,43 @@ input[type="number"]:focus {
 
 .surface-copy {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  min-width: 0;
 }
 
 .surface-name {
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-.surface-desc {
-  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 11.5px;
 }
 
+.surface-desc,
 .surface-check {
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 1px;
-}
-
-.surface-option.is-selected .surface-check {
-  border-color: var(--accent);
-  background: var(--accent);
-  box-shadow: inset 0 0 0 3px var(--surface);
+  display: none;
 }
 
 .preset-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-top: 6px;
+  padding-bottom: 0;
+  scrollbar-width: none;
+}
+
+.preset-grid::-webkit-scrollbar {
+  display: none;
 }
 
 .preset {
   display: flex;
+  flex: 0 0 122px;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
-  padding: 5px;
+  padding: 4px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 2px;
   text-align: left;
 }
 
@@ -750,7 +808,6 @@ input[type="number"]:focus {
 
 .preset.is-selected {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .preset-image {
@@ -758,14 +815,14 @@ input[type="number"]:focus {
   aspect-ratio: 16 / 10;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: 1px;
   background: var(--field);
 }
 
 .preset-name {
-  padding: 0 2px;
-  font-size: 11.5px;
+  padding: 0 1px;
   color: var(--muted);
+  font-size: 11px;
 }
 
 .preset.is-selected .preset-name {
@@ -774,24 +831,21 @@ input[type="number"]:focus {
 }
 
 .font-rail {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding: 4px 2px 12px;
-  scroll-snap-type: x mandatory;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 4px 0 8px;
 }
 
 .font-tile {
   display: flex;
   flex-direction: column;
-  flex: 0 0 220px;
-  height: 200px;
-  padding: 9px 9px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
   background: var(--surface);
   text-align: left;
-  scroll-snap-align: start;
 }
 
 .font-tile:hover {
@@ -800,7 +854,6 @@ input[type="number"]:focus {
 
 .font-tile.is-selected {
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .font-preview {
@@ -810,7 +863,7 @@ input[type="number"]:focus {
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  margin-bottom: 7px;
+  margin-bottom: 5px;
   border: 1px solid var(--line);
   border-radius: 1px;
   background: var(--field);
@@ -824,10 +877,10 @@ input[type="number"]:focus {
 }
 
 .font-preview-placeholder {
-  max-width: 150px;
+  max-width: 130px;
   color: var(--faint);
-  font-size: 10px;
-  line-height: 1.35;
+  font-size: 9px;
+  line-height: 1.3;
   text-align: center;
 }
 
@@ -835,14 +888,14 @@ input[type="number"]:focus {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
 }
 
 .font-meta {
   margin-top: 1px;
   color: var(--faint);
-  font-size: 10px;
+  font-size: 9.5px;
 }
 
 .upload-row {

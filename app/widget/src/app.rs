@@ -39,6 +39,7 @@ pub enum AppEvent {
     SettingsOpen(bool),
     ShowWidget,
     FontsChanged,
+    RefreshLyrics,
     Visibility(bool),
     Fullscreen(bool),
 }
@@ -349,12 +350,23 @@ impl App {
                 .and_then(|index| lyrics.lines.get(index))
                 .map(|line| line.text.clone())
         });
+        let (lyrics_status, lyrics_message) = match &self.content {
+            Content::Synced => ("synced".to_string(), None),
+            Content::Plain => ("plain".to_string(), None),
+            Content::Instrumental => ("instrumental".to_string(), None),
+            Content::Loading => ("loading".to_string(), None),
+            Content::NoLyrics => ("not_found".to_string(), None),
+            Content::Error(message) => ("error".to_string(), Some(message.clone())),
+            Content::Empty => ("empty".to_string(), None),
+        };
         if let Ok(mut status) = self.status_shared.lock() {
             *status = IpcStatus {
                 track,
                 playback: self.playback.clone(),
                 line,
                 line_index: self.current_index,
+                lyrics_status,
+                lyrics_message,
             };
         }
     }
@@ -380,6 +392,15 @@ impl App {
         }
         if self.config.behavior.start_with_windows != previous.behavior.start_with_windows {
             crate::autostart::apply(self.config.behavior.start_with_windows);
+        }
+        if self.config.behavior.source != previous.behavior.source
+            || self.config.behavior.source_custom != previous.behavior.source_custom
+            || self.config.behavior.preferred_apps != previous.behavior.preferred_apps
+            || self.config.behavior.ignored_apps != previous.behavior.ignored_apps
+        {
+            if let Some(media) = &self.media {
+                media.request_track();
+            }
         }
         if self.config.layout.scale != previous.layout.scale {
             self.scale = Scale::new(self.scale.os, self.config.layout.scale);
@@ -516,6 +537,26 @@ impl App {
         self.font_request.clear();
         self.background_dirty = true;
         self.text_dirty = true;
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn refresh_lyrics(&mut self) {
+        let Some(track) = &self.track else {
+            return;
+        };
+        let track = track.clone();
+        self.fetching_key = None;
+        self.lyrics = None;
+        self.content = Content::Loading;
+        self.current_index = None;
+        self.transition = None;
+        self.transition_end = None;
+        self.text_dirty = true;
+        self.start_lyrics_fetch(&track, true);
+        self.update_timers();
+        self.update_status();
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -1078,7 +1119,7 @@ impl App {
         self.fetching_key = None;
         let effective = self.effective();
         self.resolve_active_font(&effective);
-        self.start_lyrics_fetch(&track);
+        self.start_lyrics_fetch(&track, false);
         self.recompute_index(false);
         self.update_timers();
         if let Some(window) = &self.window {
@@ -1086,7 +1127,7 @@ impl App {
         }
     }
 
-    fn start_lyrics_fetch(&mut self, track: &Track) {
+    fn start_lyrics_fetch(&mut self, track: &Track, force: bool) {
         if self.fetching_key.as_deref() == Some(track.key.as_str()) {
             return;
         }
@@ -1098,7 +1139,7 @@ impl App {
             .name("iceberg-lyrics".into())
             .spawn(move || {
                 let service = LyricsService::new(cache);
-                let lyrics = service.fetch_for(&track, false);
+                let lyrics = service.fetch_for(&track, force);
                 let _ = proxy.send_event(AppEvent::Lyrics {
                     key: track.key,
                     lyrics,
@@ -1867,6 +1908,7 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::SettingsOpen(open) => self.handle_settings_open(event_loop, open),
             AppEvent::ShowWidget => self.handle_show_widget(event_loop),
             AppEvent::FontsChanged => self.handle_fonts_changed(),
+            AppEvent::RefreshLyrics => self.refresh_lyrics(),
             AppEvent::Visibility(visible) => self.set_visibility(event_loop, visible),
             AppEvent::Fullscreen(fullscreen) => self.handle_fullscreen(event_loop, fullscreen),
         }

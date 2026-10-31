@@ -34,6 +34,16 @@ pub enum WidgetMode {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum SourceMode {
+    #[default]
+    Spotify,
+    AppleMusic,
+    Custom,
+    Any,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BackgroundKind {
     #[default]
     Solid,
@@ -189,6 +199,8 @@ pub struct Behavior {
     pub battery_saver: bool,
     pub reduce_motion: bool,
     pub show_progress: bool,
+    pub source: SourceMode,
+    pub source_custom: String,
     pub preferred_apps: Vec<String>,
     pub ignored_apps: Vec<String>,
 }
@@ -328,6 +340,8 @@ impl Default for Behavior {
             battery_saver: false,
             reduce_motion: false,
             show_progress: true,
+            source: SourceMode::Spotify,
+            source_custom: String::new(),
             preferred_apps: Vec::new(),
             ignored_apps: Vec::new(),
         }
@@ -455,6 +469,13 @@ impl Config {
 
         self.behavior.idle_timeout_seconds = self.behavior.idle_timeout_seconds.min(3600);
         self.behavior.pause_hide_seconds = self.behavior.pause_hide_seconds.min(600);
+        self.behavior.source_custom = self
+            .behavior
+            .source_custom
+            .trim()
+            .chars()
+            .take(120)
+            .collect();
         self.behavior.preferred_apps =
             sanitize_apps(std::mem::take(&mut self.behavior.preferred_apps));
         self.behavior.ignored_apps = sanitize_apps(std::mem::take(&mut self.behavior.ignored_apps));

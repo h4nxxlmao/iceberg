@@ -20,6 +20,8 @@ pub struct IpcStatus {
     pub playback: Playback,
     pub line: Option<String>,
     pub line_index: Option<usize>,
+    pub lyrics_status: String,
+    pub lyrics_message: Option<String>,
 }
 
 /// Line-delimited JSON protocol between the widget (server) and settings (client).
@@ -66,6 +68,7 @@ pub enum IpcMessage {
     CloseSettings,
     ShowWidget,
     FontsChanged,
+    RefreshLyrics,
     Visibility {
         visible: bool,
     },

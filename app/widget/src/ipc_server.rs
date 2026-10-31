@@ -174,6 +174,10 @@ fn handle_message(
             let _ = proxy.send_event(AppEvent::FontsChanged);
             (IpcMessage::Pong, false)
         }
+        IpcMessage::RefreshLyrics => {
+            let _ = proxy.send_event(AppEvent::RefreshLyrics);
+            (IpcMessage::Pong, false)
+        }
         IpcMessage::Visibility { visible } => {
             let _ = proxy.send_event(AppEvent::Visibility(visible));
             (IpcMessage::Pong, false)

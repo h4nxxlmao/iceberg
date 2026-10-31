@@ -14,7 +14,8 @@ Offscreen native render over a neutral review backdrop. The real widget is a tra
 
 - Frameless, always-on-top native widget with Island, Card, and Lyrics modes
 - Event-driven Windows SMTC now-playing; no polling loop
-- Time-synced lyrics from [LRCLIB](https://lrclib.net), with plain-text, instrumental, loading, empty, unsynced, and offline states
+- Music source picker for Spotify, Apple Music, a custom SMTC app, or an explicit Any app. Browser and YouTube sessions are ignored by default.
+- Time-synced lyrics from [LRCLIB](https://lrclib.net), with plain-text, instrumental, loading, empty, unsynced, and offline states. Settings can force a fresh lookup or copy the current line.
 - Five surfaces: Solid, Transparent, Acrylic, Ice, and Liquid. The textured surfaces share one CPU wallpaper pipeline; there is no DWM acrylic.
 - Slide, fade, and off transitions, plus the configured active color, inactive opacity, alignment, case, letter spacing, line height, shadow, and outline
 - Eight bundled OFL families with lazy per-family loading, cap-height optical scaling, and baseline normalization

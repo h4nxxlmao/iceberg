@@ -260,9 +260,27 @@ impl LyricsService {
             ("track_name".to_string(), clean_title(&track.title)),
             ("artist_name".to_string(), clean_artist(&track.artist)),
         ];
-        Ok(self
+        let mut items = self
             .http_json::<Vec<ApiTrack>>("https://lrclib.net/api/search", &query)?
-            .unwrap_or_default())
+            .unwrap_or_default();
+        if items.is_empty() {
+            // LRCLIB's structured search can miss decorated titles and featured artists.
+            let free = format!(
+                "{} {}",
+                clean_artist(&track.artist),
+                clean_title(&track.title)
+            );
+            let free = free.trim();
+            if !free.is_empty() {
+                items = self
+                    .http_json::<Vec<ApiTrack>>(
+                        "https://lrclib.net/api/search",
+                        &[("q".to_string(), free.to_string())],
+                    )?
+                    .unwrap_or_default();
+            }
+        }
+        Ok(items)
     }
 
     fn api_get_by_id(&self, id: u64) -> Result<Option<ApiTrack>, String> {

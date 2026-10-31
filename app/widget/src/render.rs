@@ -337,15 +337,6 @@ impl<'a> View<'a> {
         compute_metrics(self.config, self.mode, self.scale, self.font_metrics)
     }
 
-    fn accent(&self) -> Rgba {
-        if self.config.background.accent_from_art {
-            if let Some(accent) = self.track.and_then(|track| track.accent.as_deref()) {
-                return Rgba::from_hex(accent, 1.0);
-            }
-        }
-        Rgba::from_hex(&self.config.background.accent_color, 1.0)
-    }
-
     fn active_color(&self) -> Rgba {
         Rgba::from_hex(&self.config.typography.active_color, 1.0)
     }
@@ -476,29 +467,29 @@ impl Renderer {
         let mask = self.rasterize_text(
             text,
             &entry.info.family,
-            26.0,
+            22.0,
             500,
             0.0,
             Rgba {
-                r: 21,
-                g: 26,
-                b: 24,
+                r: 243,
+                g: 241,
+                b: 234,
                 a: 255,
             },
-            (width as f32) - 32.0,
-            3,
+            (width as f32) - 36.0,
+            2,
         );
         let mut image = vec![0u8; width as usize * height as usize * 4];
         for pixel in image.chunks_exact_mut(4) {
-            pixel.copy_from_slice(&[243, 241, 234, 255]);
+            pixel.copy_from_slice(&[20, 25, 24, 255]);
         }
         blit_colored_silhouette(
             &mut image,
             width as i32,
             height as i32,
             &mask,
-            16,
             18,
+            20,
             1.0,
             false,
         );
@@ -1032,12 +1023,11 @@ impl Renderer {
         if view.mode == WidgetMode::Lyrics {
             return;
         }
-        let accent = view.accent();
-        let width = (2.0 * metrics.scale).max(1.5);
-        let height = metrics.line_height * 0.46;
+        let dot_color = view.active_color().with_alpha(0.55);
+        let dot = (3.0 * metrics.scale).max(2.0);
         let y = metrics.lyric_y
             + before as f64 * metrics.line_height
-            + (metrics.line_height - height) / 2.0;
+            + (metrics.line_height - dot) / 2.0;
         let x = metrics.lyric_x - 7.0 * metrics.scale;
         fill_rounded_rect(
             &mut self.text,
@@ -1045,10 +1035,10 @@ impl Renderer {
             metrics.window_h,
             x,
             y,
-            width,
-            height,
-            width / 2.0,
-            accent,
+            dot,
+            dot,
+            dot / 2.0,
+            dot_color,
         );
     }
 
@@ -1071,7 +1061,7 @@ impl Renderer {
         if fraction <= 0.001 {
             return;
         }
-        let accent = view.accent();
+        let color = view.active_color().with_alpha(0.55);
         fill_rounded_rect(
             &mut self.frame,
             metrics.window_w,
@@ -1081,7 +1071,7 @@ impl Renderer {
             (metrics.progress_w * fraction).max(metrics.progress_h),
             metrics.progress_h,
             metrics.progress_h / 2.0,
-            accent,
+            color,
         );
     }
 

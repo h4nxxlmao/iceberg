@@ -23,7 +23,7 @@ use windows::Storage::Streams::{
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
 
 use crate::cache;
-use crate::config::Config;
+use crate::config::{Config, SourceMode};
 use crate::model::{Playback, PlaybackStatus, Track};
 use crate::util::{now_ms, track_key};
 
@@ -529,14 +529,28 @@ fn app_allowed(source: &str, config: &Config) -> bool {
     {
         return false;
     }
-    if config.behavior.preferred_apps.is_empty() {
-        return true;
+    if !config.behavior.preferred_apps.is_empty()
+        && !config
+            .behavior
+            .preferred_apps
+            .iter()
+            .any(|app| source.contains(&app.to_lowercase()))
+    {
+        return false;
     }
-    config
-        .behavior
-        .preferred_apps
-        .iter()
-        .any(|app| source.contains(&app.to_lowercase()))
+    match config.behavior.source {
+        SourceMode::Spotify => source.contains("spotify"),
+        SourceMode::AppleMusic => {
+            source.contains("applemusic")
+                || source.contains("apple music")
+                || source.contains("itunes")
+        }
+        SourceMode::Custom => {
+            let custom = config.behavior.source_custom.to_lowercase();
+            !custom.is_empty() && source.contains(&custom)
+        }
+        SourceMode::Any => true,
+    }
 }
 
 fn decode_thumbnail(
@@ -702,5 +716,30 @@ mod tests {
         config.behavior.preferred_apps = vec!["spotify.exe".to_string()];
         assert!(app_allowed("Spotify.EXE", &config));
         assert!(!app_allowed("musicbee.exe", &config));
+    }
+
+    #[test]
+    fn source_mode_limits_which_player_is_followed() {
+        let mut config = Config::default();
+        assert!(app_allowed(
+            "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify",
+            &config
+        ));
+        assert!(!app_allowed("Chrome", &config));
+        config.behavior.source = SourceMode::AppleMusic;
+        assert!(app_allowed(
+            "AppleInc.AppleMusicWin_nzyj5cx40ttqa!App",
+            &config
+        ));
+        assert!(!app_allowed(
+            "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify",
+            &config
+        ));
+        config.behavior.source = SourceMode::Custom;
+        config.behavior.source_custom = "foobar".to_string();
+        assert!(app_allowed("foobar.exe", &config));
+        assert!(!app_allowed("SpotifyAB.SpotifyMusic", &config));
+        config.behavior.source = SourceMode::Any;
+        assert!(app_allowed("Chrome", &config));
     }
 }

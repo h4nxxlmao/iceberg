@@ -432,3 +432,12 @@ pub fn show_widget(state: State<'_, SettingsState>) -> Result<(), String> {
         other => Err(format!("Unexpected widget response: {other:?}")),
     }
 }
+
+#[tauri::command]
+pub fn retry_lyrics(state: State<'_, SettingsState>) -> Result<(), String> {
+    match state.request(&IpcMessage::RefreshLyrics)? {
+        IpcMessage::Pong => Ok(()),
+        IpcMessage::Error { message } => Err(message),
+        other => Err(format!("Unexpected widget response: {other:?}")),
+    }
+}
