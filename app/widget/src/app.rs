@@ -212,6 +212,9 @@ pub struct App {
     peek_restore_hidden: bool,
     pause_hide_at: Option<Instant>,
     position_settle: Option<Instant>,
+    preview_probe_at: Option<Instant>,
+    cover_retry_at: Option<Instant>,
+    cover_retry_count: u8,
     fullscreen: bool,
     fullscreen_hidden: bool,
     fullscreen_started: bool,
@@ -287,6 +290,9 @@ impl App {
             peek_restore_hidden: false,
             pause_hide_at: None,
             position_settle: None,
+            preview_probe_at: None,
+            cover_retry_at: None,
+            cover_retry_count: 0,
             fullscreen: false,
             fullscreen_hidden: false,
             fullscreen_started: false,
@@ -336,6 +342,7 @@ impl App {
             title: track.title.clone(),
             artist: track.artist.clone(),
             album: track.album.clone(),
+            source_app: track.source_app.clone(),
         });
         let line = self.lyrics.as_ref().and_then(|lyrics| {
             self.current_index
@@ -416,6 +423,11 @@ impl App {
             if let Some(media) = &self.media {
                 media.request_track();
             }
+            self.preview_probe_at = if self.settings_demo {
+                Some(Instant::now() + Duration::from_millis(1200))
+            } else {
+                None
+            };
             self.user_hidden = false;
             self.pause_hide_at = None;
             self.position_settle = None;
@@ -435,6 +447,7 @@ impl App {
                 window.request_redraw();
             }
         } else {
+            self.preview_probe_at = None;
             if self.settings_demo {
                 self.settings_demo = false;
                 self.track = None;
@@ -951,6 +964,9 @@ impl App {
         self.backdrop_settle = None;
         self.position_settle = None;
         self.pause_hide_at = None;
+        self.preview_probe_at = None;
+        self.cover_retry_at = None;
+        self.cover_retry_count = 0;
         self.fullscreen_hidden = false;
         self.last_background_ms = 0.0;
         self.first_background_ms = 0.0;
@@ -996,6 +1012,7 @@ impl App {
 
     fn on_track(&mut self, track: Track, playback: Playback) {
         self.settings_demo = false;
+        self.preview_probe_at = None;
         if self
             .track
             .as_ref()
@@ -1003,6 +1020,36 @@ impl App {
             .unwrap_or(false)
         {
             self.playback = playback;
+            let missing_cover = self
+                .track
+                .as_ref()
+                .map(|current| current.cover_png.is_none())
+                .unwrap_or(false);
+            if missing_cover {
+                if let Some(cover) = track.cover_png {
+                    if let Some(current) = &mut self.track {
+                        current.cover_png = Some(cover);
+                        current.accent = track.accent;
+                    }
+                    self.art = None;
+                    self.refresh_art();
+                    self.background_dirty = true;
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
+            if self
+                .track
+                .as_ref()
+                .map(|current| current.cover_png.is_some())
+                .unwrap_or(false)
+            {
+                self.cover_retry_at = None;
+                self.cover_retry_count = 0;
+            } else {
+                self.cover_retry_at = Some(Instant::now() + Duration::from_millis(900));
+            }
             self.recompute_index(false);
             self.update_timers();
             self.update_status();
@@ -1019,6 +1066,12 @@ impl App {
         self.transition = None;
         self.transition_end = None;
         self.art = None;
+        self.cover_retry_count = 0;
+        self.cover_retry_at = if track.cover_png.is_none() {
+            Some(Instant::now() + Duration::from_millis(900))
+        } else {
+            None
+        };
         self.refresh_art();
         self.background_dirty = true;
         self.text_dirty = true;
@@ -1366,6 +1419,7 @@ impl App {
                 if self.settings_open {
                     self.settings_demo = true;
                     self.seed_demo();
+                    self.preview_probe_at = Some(Instant::now() + Duration::from_millis(1200));
                     self.update_timers();
                     return;
                 }
@@ -1894,6 +1948,38 @@ impl ApplicationHandler<AppEvent> for App {
                     && !self.user_hidden
                 {
                     self.destroy_window();
+                }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
+        if let Some(deadline) = self.cover_retry_at {
+            if now >= deadline {
+                self.cover_retry_at = None;
+                let missing = self
+                    .track
+                    .as_ref()
+                    .map(|track| track.cover_png.is_none())
+                    .unwrap_or(false);
+                if missing && self.cover_retry_count < 3 {
+                    self.cover_retry_count += 1;
+                    if let Some(media) = &self.media {
+                        media.request_track();
+                    }
+                    self.cover_retry_at = Some(now + Duration::from_millis(1000));
+                }
+            } else {
+                next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));
+            }
+        }
+        if let Some(deadline) = self.preview_probe_at {
+            if now >= deadline {
+                self.preview_probe_at = None;
+                if self.settings_open && self.settings_demo {
+                    if let Some(media) = &self.media {
+                        media.request_track();
+                    }
+                    self.preview_probe_at = Some(now + Duration::from_millis(1500));
                 }
             } else {
                 next = Some(next.map(|value| value.min(deadline)).unwrap_or(deadline));

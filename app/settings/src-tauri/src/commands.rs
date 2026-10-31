@@ -218,6 +218,11 @@ pub fn refresh(state: State<'_, SettingsState>) -> Result<SyncState, String> {
 }
 
 #[tauri::command]
+pub fn status(state: State<'_, SettingsState>) -> Result<IpcStatus, String> {
+    state.get_status()
+}
+
+#[tauri::command]
 pub fn save_config(state: State<'_, SettingsState>, config: Config) -> Result<Config, String> {
     state.commit_config(config)
 }
@@ -271,7 +276,13 @@ pub fn list_fonts(state: State<'_, SettingsState>) -> Vec<FontFamilyInfo> {
 }
 
 #[tauri::command]
-pub fn font_previews(text: String) -> Result<Vec<FontPreview>, String> {
+pub async fn font_previews(text: String) -> Result<Vec<FontPreview>, String> {
+    tauri::async_runtime::spawn_blocking(move || render_font_previews(text))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn render_font_previews(text: String) -> Result<Vec<FontPreview>, String> {
     let exe = std::env::current_exe()
         .map_err(|error| error.to_string())?
         .parent()

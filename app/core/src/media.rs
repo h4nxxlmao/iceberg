@@ -406,10 +406,32 @@ impl Worker {
         if let Some((bytes, accent)) = cache::read_art(&self.cache_dir, key) {
             return Some((bytes, accent));
         }
-        let thumbnail = properties.Thumbnail().ok()?;
-        let stream = thumbnail.OpenReadAsync().ok()?.join().ok()?;
-        let (bytes, accent) = decode_thumbnail(&stream).ok()?;
+        let thumbnail = match properties.Thumbnail() {
+            Ok(thumbnail) => thumbnail,
+            Err(error) => {
+                eprintln!("iceberg: cover thumbnail unavailable: {error}");
+                return None;
+            }
+        };
+        let stream = match thumbnail
+            .OpenReadAsync()
+            .and_then(|operation| operation.join())
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("iceberg: cover stream failed: {error}");
+                return None;
+            }
+        };
+        let (bytes, accent) = match decode_thumbnail(&stream) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                eprintln!("iceberg: cover decode failed: {error}");
+                return None;
+            }
+        };
         if bytes.len() > 1_500_000 {
+            eprintln!("iceberg: cover too large ({} bytes)", bytes.len());
             return None;
         }
         cache::write_art(&self.cache_dir, key, &bytes, accent.as_deref());

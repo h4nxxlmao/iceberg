@@ -132,6 +132,7 @@ interface TrackInfo {
   title: string;
   artist: string;
   album: string;
+  source_app: string;
 }
 
 interface IpcStatus {
@@ -300,6 +301,11 @@ let saveTimer: number | undefined;
 let savePromise: Promise<void> | null = null;
 let saveQueued = false;
 let fontPreviewRequest: Promise<void> | null = null;
+let pointerActive = false;
+
+window.addEventListener("pointerdown", () => { pointerActive = true; }, true);
+window.addEventListener("pointerup", () => { pointerActive = false; }, true);
+window.addEventListener("pointercancel", () => { pointerActive = false; }, true);
 
 function escapeHtml(value: unknown): string {
   return String(value)
@@ -489,10 +495,11 @@ function updateStatus(): void {
   }
   const track = currentTrack();
   const line = currentLine();
+  const demo = track?.source_app === "Iceberg demo";
   element.innerHTML = `
     <span class="status-mark ${track ? "is-live" : ""}" aria-hidden="true"></span>
     <div class="status-copy">
-      <div class="status-title">${escapeHtml(track ? track.title : "Widget ready")}</div>
+      <div class="status-title">${escapeHtml(track ? track.title : "Widget ready")}${demo ? '<span class="status-demo">demo</span>' : ""}</div>
       <div class="status-line">${escapeHtml(track ? line : "Preview on the desktop")}</div>
     </div>
   `;
@@ -912,6 +919,7 @@ function renderLayout(config: Config): string {
 function renderLyrics(config: Config): string {
   const track = currentTrack();
   const trackOffset = track ? config.per_song[track.key]?.offset_ms ?? 0 : 0;
+  const demo = track?.source_app === "Iceberg demo";
   return `
     ${sectionTools("lyrics")}
     ${group(
@@ -929,9 +937,11 @@ function renderLyrics(config: Config): string {
       track
         ? group(
             "This track",
-            "Per-track offsets are applied on top of the global offset.",
+            demo
+              ? "Demo preview. Start a track in Spotify and this switches to the real SMTC session automatically."
+              : "Per-track offsets are applied on top of the global offset.",
             `<div class="inline-actions">
-              <span class="inline-note">${escapeHtml(track.title)} — ${trackOffset >= 0 ? "+" : ""}${trackOffset} ms</span>
+              <span class="inline-note">${escapeHtml(track.title)} — ${trackOffset >= 0 ? "+" : ""}${trackOffset} ms${demo ? " · demo preview" : ""}</span>
               <button class="button secondary small" type="button" data-track-offset="-100">−100 ms</button>
               <button class="button secondary small" type="button" data-track-offset="100">+100 ms</button>
               <button class="button ghost small" type="button" data-track-offset="reset" ${trackOffset === 0 ? "disabled" : ""}>Reset</button>
@@ -1447,10 +1457,27 @@ async function ensureFontPreviews(): Promise<void> {
     .finally(() => {
       fontPreviewRequest = null;
       if (state.section === "typography") {
-        renderSection();
+        updateFontPreviewTiles();
       }
     });
   await fontPreviewRequest;
+}
+
+function updateFontPreviewTiles(): void {
+  for (const tile of root.querySelectorAll<HTMLButtonElement>("[data-font]")) {
+    const family = tile.dataset.font;
+    if (!family) {
+      continue;
+    }
+    const holder = tile.querySelector<HTMLElement>(".font-preview");
+    if (!holder) {
+      continue;
+    }
+    const preview = state.fontPreviews.get(family);
+    holder.innerHTML = preview
+      ? `<img src="${preview}" alt="">`
+      : `<span class="font-preview-placeholder">${state.fontPreviewFailed ? "Preview unavailable" : "Rendering specimen"}</span>`;
+  }
 }
 
 function hydrateImages(): void {
@@ -1483,13 +1510,18 @@ function hydrateImages(): void {
 }
 
 async function refreshFromWidget(): Promise<void> {
-  if (saveTimer || savePromise) {
+  if (pointerActive || saveTimer || savePromise) {
     return;
   }
   const baseline = JSON.stringify(state.config);
   try {
     const data = await invoke<SyncState>("refresh");
-    if (saveTimer || savePromise || JSON.stringify(state.config) !== baseline) {
+    if (
+      pointerActive ||
+      saveTimer ||
+      savePromise ||
+      JSON.stringify(state.config) !== baseline
+    ) {
       return;
     }
     state.status = data.status;
@@ -1498,11 +1530,12 @@ async function refreshFromWidget(): Promise<void> {
     state.config = data.config;
     updateStatus();
     if (previous !== next) {
-      const editing =
+      const focused =
         document.activeElement instanceof HTMLInputElement ||
         document.activeElement instanceof HTMLTextAreaElement ||
-        document.activeElement instanceof HTMLSelectElement;
-      if (!editing) {
+        document.activeElement instanceof HTMLSelectElement ||
+        document.activeElement instanceof HTMLButtonElement;
+      if (!focused) {
         renderSection();
       }
     }
@@ -1514,5 +1547,27 @@ async function refreshFromWidget(): Promise<void> {
 window.addEventListener("focus", () => {
   void refreshFromWidget();
 });
+
+window.setInterval(() => {
+  if (document.hidden || pointerActive || saveTimer || savePromise) {
+    return;
+  }
+  void invoke<IpcStatus>("status")
+    .then((status) => {
+      const previousTrack = state.status.track?.key;
+      state.status = status;
+      updateStatus();
+      if (
+        previousTrack !== status.track?.key &&
+        !pointerActive &&
+        (state.section === "lyrics" || state.section === "typography")
+      ) {
+        renderSection();
+      }
+    })
+    .catch(() => {
+      // The next poll or focus refresh retries after a widget restart.
+    });
+}, 1000);
 
 void start();

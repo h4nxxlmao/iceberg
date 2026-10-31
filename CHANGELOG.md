@@ -46,6 +46,9 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - A one-shot IPC race where the demo preview could close as soon as a command connection ended. The settings now holds one persistent connection, and the widget still closes the preview on an actual disconnect.
 - A focus-refresh race that could silently discard the first settings change.
 - The font specimen renderer no longer rewrites the live config; it returns before config loading and the single-instance path.
+- Settings controls are no longer replaced by focus or font-preview refreshes mid-click; font specimens render off the Tauri thread and update in place.
+- A stuck line transition no longer prevents the active lyric from advancing. While Settings is open, the preview re-queries SMTC until a real track replaces the demo, and the settings status follows the widget.
+- Album cover fetches retry when the first SMTC thumbnail is unavailable, and a late cover updates the existing track instead of being dropped.
 
 ### Performance
 

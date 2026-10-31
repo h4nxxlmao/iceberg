@@ -211,6 +211,14 @@ a {
   font-weight: 500;
 }
 
+.status-demo {
+  margin-left: 5px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+}
+
 .status-line {
   margin-top: 2px;
   color: var(--muted);

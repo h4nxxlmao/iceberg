@@ -22,6 +22,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::bootstrap,
             commands::refresh,
+            commands::status,
             commands::save_config,
             commands::apply_preset,
             commands::reset_section,
