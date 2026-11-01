@@ -693,7 +693,8 @@ impl App {
 
     fn cycle_mode(&mut self) {
         self.config.mode = match self.config.mode {
-            WidgetMode::Card => WidgetMode::Lyrics,
+            WidgetMode::Card => WidgetMode::Player,
+            WidgetMode::Player => WidgetMode::Lyrics,
             WidgetMode::Lyrics => WidgetMode::Island,
             WidgetMode::Island => WidgetMode::Card,
         };
@@ -1359,7 +1360,7 @@ impl App {
         self.next_progress = None;
         let effective = self.effective();
         if self.playback.status != PlaybackStatus::Playing
-            || effective.mode != WidgetMode::Card
+            || !matches!(effective.mode, WidgetMode::Card | WidgetMode::Player)
             || !effective.behavior.show_progress
             || self.playback.duration_ms <= 0
         {
@@ -2259,6 +2260,7 @@ fn background_visuals_changed(current: &Config, previous: &Config) -> bool {
         || a.font_family != b.font_family
         || a.font_size != b.font_size
         || a.line_height != b.line_height
+        || a.align != b.align
         || a.active_color != b.active_color
         || a.shadow != b.shadow
         || a.outline != b.outline
@@ -2274,8 +2276,6 @@ fn text_visuals_changed(current: &Config, previous: &Config) -> bool {
         || a.italic != b.italic
         || a.letter_spacing != b.letter_spacing
         || a.active_color != b.active_color
-        || a.show_marker != b.show_marker
-        || a.marker_color != b.marker_color
         || a.case != b.case
         || current.per_song != previous.per_song
         || current.lyrics.wrap != previous.lyrics.wrap

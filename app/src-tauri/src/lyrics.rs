@@ -10,7 +10,7 @@ use crate::cache;
 use crate::state::{AppState, Playback, Track};
 use crate::util::{clean_artist, clean_title, now_ms};
 
-const USER_AGENT: &str = "Iceberg/0.1.0 (https://github.com/h4nxxlmao/iceberg)";
+const USER_AGENT: &str = "Iceberg/0.2.0 (https://github.com/h4nxxlmao/iceberg)";
 const MAX_BODY: u64 = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

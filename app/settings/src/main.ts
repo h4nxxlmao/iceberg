@@ -57,8 +57,6 @@ interface Typography {
   case: TextCase;
   active_color: string;
   inactive_opacity: number;
-  show_marker: boolean;
-  marker_color: string;
   shadow: boolean;
   outline: boolean;
   visible_lines: number;
@@ -120,7 +118,7 @@ interface SongOverride {
 
 interface Config {
   version: number;
-  mode: "card" | "lyrics" | "island";
+  mode: "card" | "player" | "lyrics" | "island";
   background: Background;
   typography: Typography;
   layout: Layout;
@@ -294,7 +292,7 @@ const state: UiState = {
   images: new Map(),
   uploading: false,
   resetAllArmed: false,
-  version: "0.1.0",
+  version: "0.2.0",
 };
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
@@ -877,8 +875,6 @@ function renderTypography(config: Config): string {
       "",
       [
         colorRow("type-active", "Active color", "", typography.active_color),
-        colorRow("type-marker-color", "Marker color", "", typography.marker_color),
-        checkRow("type-marker", "Show active marker", "", typography.show_marker),
         rangeRow("type-visible", "Visible lines", "", 3, 7, 1, typography.visible_lines, (value) => String(Math.round(value))),
       ].join(""),
     )}
@@ -935,11 +931,21 @@ function renderLayout(config: Config): string {
         "",
         [
           { value: "card", label: "Card" },
-          { value: "lyrics", label: "Lyrics" },
+          { value: "player", label: "Player only" },
+          { value: "lyrics", label: "Lyrics only" },
           { value: "island", label: "Island" },
         ],
         config.mode,
       ),
+    )}
+    ${group(
+      "Content",
+      "",
+      [
+        checkRow("behavior-art", "Show album art", "", config.behavior.show_art),
+        checkRow("behavior-meta", "Show track and artist", "", config.behavior.show_meta),
+        checkRow("behavior-progress", "Show progress bar", "", config.behavior.show_progress),
+      ].join(""),
     )}
     ${group(
       "Size",
@@ -1045,12 +1051,9 @@ function renderPlayback(config: Config): string {
       }`,
     )}
     ${group(
-      "Widget behavior",
+      "Desktop",
       "",
       [
-        checkRow("behavior-progress", "Show progress bar", "", behavior.show_progress),
-        checkRow("behavior-art", "Show album art", "", behavior.show_art),
-        checkRow("behavior-meta", "Show track and artist", "", behavior.show_meta),
         checkRow("behavior-click-through", "Click-through", "", behavior.click_through),
         checkRow("behavior-startup", "Start with Windows", "", behavior.start_with_windows),
       ].join(""),
@@ -1278,8 +1281,6 @@ function bindTypography(config: Config): void {
   bindColor("type-active", (value) => { config.typography.active_color = value; });
   bindRange("type-inactive", (value) => { config.typography.inactive_opacity = value; }, pct);
   bindRange("type-visible", (value) => { config.typography.visible_lines = Math.round(value); }, (value) => String(Math.round(value)));
-  bindColor("type-marker-color", (value) => { config.typography.marker_color = value; });
-  bindCheck("type-marker", (value) => { config.typography.show_marker = value; });
   bindCheck("type-shadow", (value) => { config.typography.shadow = value; });
   bindCheck("type-outline", (value) => { config.typography.outline = value; });
   bindChoice("type-transition", (value) => { config.typography.transition = value as Transition; });
@@ -1304,6 +1305,9 @@ function bindLayout(config: Config): void {
   bindRange("layout-art-radius", (value) => {
     config.layout.art_radius = value;
   }, (value) => `${Math.round(value)} px`);
+  bindCheck("behavior-art", (value) => { config.behavior.show_art = value; });
+  bindCheck("behavior-meta", (value) => { config.behavior.show_meta = value; });
+  bindCheck("behavior-progress", (value) => { config.behavior.show_progress = value; });
   for (const button of root.querySelectorAll<HTMLButtonElement>("[data-anchor]")) {
     button.addEventListener("click", () => {
       const anchor = button.dataset.anchor as Anchor | undefined;
@@ -1404,9 +1408,6 @@ function bindPlayback(config: Config): void {
       config.behavior.source_custom = customSource.value.trim();
     });
   });
-  bindCheck("behavior-progress", (value) => { config.behavior.show_progress = value; });
-  bindCheck("behavior-art", (value) => { config.behavior.show_art = value; });
-  bindCheck("behavior-meta", (value) => { config.behavior.show_meta = value; });
   bindCheck("behavior-click-through", (value) => { config.behavior.click_through = value; });
   bindCheck("behavior-fullscreen", (value) => { config.behavior.hide_on_fullscreen = value; });
   bindCheck("behavior-startup", (value) => { config.behavior.start_with_windows = value; });
@@ -1473,6 +1474,16 @@ function cleanupSong(config: Config, key: string): void {
   }
 }
 
+function adoptConfig(next: Config): void {
+  if (!state.config) {
+    state.config = next;
+    return;
+  }
+  // Bound controls close over the config object. Replace its fields instead of the
+  // object itself so every control keeps editing the live config after a save.
+  Object.assign(state.config, next);
+}
+
 function edit(mutate: () => void): void {
   if (!state.config) {
     return;
@@ -1511,7 +1522,7 @@ async function flushSave(): Promise<void> {
   savePromise = invoke<Config>("save_config", { config: state.config })
     .then((saved) => {
       if (editVersion === version) {
-        state.config = saved;
+        adoptConfig(saved);
       }
       setSaveState("saved");
       hideBanner();
@@ -1549,7 +1560,7 @@ async function resetSection(section: string): Promise<void> {
   try {
     await cancelPendingSave();
     const config = await invoke<Config>("reset_section", { section });
-    state.config = config;
+    adoptConfig(config);
     setSaveState("saved");
     hideBanner();
     renderSection();
@@ -1562,7 +1573,7 @@ async function applyPreset(id: string): Promise<void> {
   try {
     await cancelPendingSave();
     const config = await invoke<Config>("apply_preset", { id });
-    state.config = config;
+    adoptConfig(config);
     setSaveState("saved");
     hideBanner();
     renderSection();
@@ -1580,6 +1591,7 @@ async function uploadFont(): Promise<void> {
     if (state.config) {
       state.config.typography.font_family = result.family;
       state.config.active_preset = null;
+      editVersion += 1;
     }
     setSaveState("saved");
     hideBanner();
@@ -1702,7 +1714,7 @@ async function refreshFromWidget(): Promise<void> {
     state.status = data.status;
     const previous = JSON.stringify(state.config);
     const next = JSON.stringify(data.config);
-    state.config = data.config;
+    adoptConfig(data.config);
     updateStatus();
     if (previous !== next) {
       const focused =

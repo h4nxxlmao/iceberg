@@ -233,7 +233,7 @@ pub fn compute_metrics(
         0.0
     };
     let show_progress = config.behavior.show_progress
-        && mode == WidgetMode::Card
+        && matches!(mode, WidgetMode::Card | WidgetMode::Player)
         && config.background.kind != BackgroundKind::Transparent;
     let gap = 10.0 * effective;
     let progress_h = 2.0 * effective;
@@ -264,6 +264,25 @@ pub fn compute_metrics(
                 view_lines,
                 card_h,
             )
+        }
+        WidgetMode::Player => {
+            let art_size = if config.behavior.show_art {
+                config.layout.art_size * effective
+            } else {
+                0.0
+            };
+            let meta_h = if config.behavior.show_meta {
+                art_size.max(font_size * 2.2)
+            } else {
+                art_size
+            };
+            let progress_y = padding + meta_h + if meta_h > 0.0 { gap } else { 0.0 };
+            let card_h = if show_progress {
+                progress_y + progress_h + padding
+            } else {
+                padding + meta_h + padding
+            };
+            (art_size, meta_h, progress_y, progress_y, 0, 0, card_h)
         }
         WidgetMode::Lyrics => {
             let card_h = padding * 2.0 + visible_lines as f64 * line_height;
@@ -596,7 +615,13 @@ impl Renderer {
             self.draw_art(view, &metrics, active);
         }
 
-        if metrics.meta_w > 1.0 && view.config.behavior.show_meta {
+        if metrics.meta_w > 1.0
+            && view.config.behavior.show_meta
+            && matches!(
+                view.mode,
+                WidgetMode::Card | WidgetMode::Player | WidgetMode::Island
+            )
+        {
             let title = view
                 .track
                 .map(|track| track.title.as_str())
@@ -690,7 +715,7 @@ impl Renderer {
         }
 
         if view.config.behavior.show_progress
-            && view.mode == WidgetMode::Card
+            && matches!(view.mode, WidgetMode::Card | WidgetMode::Player)
             && view.config.background.kind != BackgroundKind::Transparent
         {
             let track = active.with_alpha(0.14);
@@ -807,10 +832,13 @@ impl Renderer {
         self.draw_content(view, &metrics);
         self.frame.copy_from_slice(&self.background);
         self.draw_progress(view, &metrics);
-        self.blend_text(&metrics);
+        self.blend_text(&metrics, view.mode);
     }
 
     fn draw_content(&mut self, view: &View<'_>, metrics: &Metrics) {
+        if view.mode == WidgetMode::Player {
+            return;
+        }
         match view.content {
             Content::Synced => {
                 let Some(lyrics) = view.lyrics else {
@@ -900,7 +928,6 @@ impl Renderer {
                         view.synthetic_bold(view.config.typography.weight as u16),
                     );
                 }
-                self.draw_marker(view, metrics, before as f32);
             }
             Content::Plain => {
                 let Some(lyrics) = view.lyrics else {
@@ -1093,32 +1120,9 @@ impl Renderer {
         }
     }
 
-    fn draw_marker(&mut self, view: &View<'_>, metrics: &Metrics, before: f32) {
-        if view.mode == WidgetMode::Lyrics || !view.config.typography.show_marker {
-            return;
-        }
-        let dot_color = Rgba::from_hex(&view.config.typography.marker_color, 0.9);
-        let dot = (3.0 * metrics.scale).max(2.0);
-        let y = metrics.lyric_y
-            + before as f64 * metrics.line_height
-            + (metrics.line_height - dot) / 2.0;
-        let x = metrics.lyric_x - 7.0 * metrics.scale;
-        fill_rounded_rect(
-            &mut self.text,
-            metrics.window_w,
-            metrics.window_h,
-            x,
-            y,
-            dot,
-            dot,
-            dot / 2.0,
-            dot_color,
-        );
-    }
-
     fn draw_progress(&mut self, view: &View<'_>, metrics: &Metrics) {
         if !view.config.behavior.show_progress
-            || view.mode != WidgetMode::Card
+            || !matches!(view.mode, WidgetMode::Card | WidgetMode::Player)
             || view.config.background.kind == BackgroundKind::Transparent
         {
             return;
@@ -1149,14 +1153,16 @@ impl Renderer {
         );
     }
 
-    fn blend_text(&mut self, metrics: &Metrics) {
+    fn blend_text(&mut self, metrics: &Metrics, mode: WidgetMode) {
         let x0 = (metrics.lyric_x - 14.0 * metrics.scale).floor().max(0.0) as i32;
-        let y0 = (metrics.lyric_y - 10.0 * metrics.scale).floor().max(0.0) as i32;
+        let rows = if mode == WidgetMode::Island {
+            1
+        } else {
+            metrics.lyric_view_lines
+        };
+        let y0 = metrics.lyric_y.floor().max(0.0) as i32;
         let x1 = (metrics.lyric_x + metrics.lyric_w + 8.0 * metrics.scale).ceil() as i32;
-        let y1 = (metrics.lyric_y
-            + metrics.lyric_view_lines as f64 * metrics.line_height
-            + 12.0 * metrics.scale)
-            .ceil() as i32;
+        let y1 = (metrics.lyric_y + rows as f64 * metrics.line_height).ceil() as i32;
         blend_region(
             &mut self.frame,
             &self.text,
@@ -2291,6 +2297,12 @@ mod tests {
             Scale::new(1.0, 100),
             FontMetrics::default(),
         );
+        let player = compute_metrics(
+            &config(),
+            WidgetMode::Player,
+            Scale::new(1.0, 100),
+            FontMetrics::default(),
+        );
         let island = compute_metrics(
             &config(),
             WidgetMode::Island,
@@ -2299,6 +2311,9 @@ mod tests {
         );
         assert!(card.window_h > lyrics.window_h);
         assert!(lyrics.lyric_w > 300.0);
+        assert!(player.art_size > 0.0);
+        assert_eq!(player.visible_lines, 0);
+        assert!(player.window_h < card.window_h);
         assert!(island.art_size > 0.0);
         assert!(island.visible_lines == 1);
     }

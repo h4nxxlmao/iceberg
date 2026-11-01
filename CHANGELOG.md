@@ -4,6 +4,8 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-01
+
 ### Added
 
 - Native widget workspace (`app/core`, `app/widget`) with per-monitor DPI v2, exact tool-window styles, event-driven SMTC, LRCLIB enhanced word timings, font metric normalization, six presets, cached background and lyric layers, and a lazy tray-only mode.
@@ -12,9 +14,11 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Content controls for showing or hiding album art, the track and artist line, and wrapping long lyrics.
 - The lyric viewport now renders surrounding lines above and below the visible window, so an incoming line slides into place rather than appearing only after the scroll reaches it.
 - Surface, preset, font, background, and other visual config changes crossfade over 300 ms instead of snapping. Settings selection borders transition over 160 ms.
-- Active-line marker visibility and color, album artwork size and rounding, and a configurable change-animation duration.
+- Album artwork size and rounding, and a configurable change-animation duration.
+- A Player-only widget mode, alongside Card, Lyrics-only, and Island. Content controls now live in Layout, where the mode is chosen.
 - Track, title, and late-arriving cover changes crossfade. Settings sections enter with a short fade/slide, controls have press states, and the live status mark breathes.
 - Force a fresh lyric lookup from Settings. It bypasses the cached not-found result and retries LRCLIB with a free-text fallback. The current line can be copied from the same panel.
+- A lrcmux fallback through its LRCLIB-compatible API when LRCLIB is unavailable, returns 502/503, or has no match. Synced and plain results are supported, and the returned source is kept in the lyric cache.
 - A source label in the settings status and an explicit loading/not-found/error lyric state instead of a misleading demo line.
 - Renderer decision after the Slint/wgpu/CPU spike: the CPU layered-window renderer in [docs/decisions/0001-renderer.md](docs/decisions/0001-renderer.md).
 - Phase A review screenshots and release measurements in [docs/phase-a/](docs/phase-a/).
@@ -40,7 +44,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Relicensed the project from MIT to **GPL-3.0-only**. Releases published before this change remain under the terms they were distributed with.
 - The default widget font is now Poppins instead of Lato, with 19 px type, 1.35 leading, tighter tracking, and a 520 ms transition. Lato remains available in the picker. Config v3 migrates an unpinned Lato config to Poppins; v4 raises the transition default to 520 ms.
 - Line spacing stays on the user's line-height grid so the card does not resize when the family changes.
-- The Paper preset uses Abril Fatface and Quiet uses Space Mono.
+- The Paper preset now uses Lato on warm paper with a quieter title and progress line. Clear, Frost, and Glass use typefaces that match their surfaces.
 - The Frost preset uses ink text on the light ice surface for contrast.
 - Text masks are composited with their premultiplied alpha, fixing thin antialiased edges.
 - Textured windows load the wallpaper only while a textured surface is active and drop the proxy with the window.
@@ -50,7 +54,7 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Settings changes are saved by the widget after validation; the settings focus refresh no longer overwrites an edit that began while the refresh was in flight.
 - The settings font picker uses native specimens from the widget rather than WebView font faces.
 - The settings layout uses one scroll container, compact surface/preset/font selectors, a native source dropdown, and collapsed fine-tuning rows. Per-control descriptions and the decorative accent controls are gone.
-- The player progress rule and active-line marker use the active text color instead of the warm accent, so the orange rule is removed.
+- The player progress rule uses the active text color instead of the warm accent, so the orange rule is removed. The active-line marker dot and its settings were removed.
 - Font specimens use a fixed short line and a dark preview surface, so every family is legible and no longer clips inside the tile.
 
 ### Fixed
@@ -67,8 +71,11 @@ All notable changes to Iceberg are documented here. The format follows [Keep a C
 - Source changes re-query the current SMTC session immediately instead of waiting for the next media event.
 - A stale not-found lyric cache no longer blocks a manual retry, and decorated track titles get a free-text LRCLIB search fallback.
 - The settings window no longer stalls while a save is written, a status poll runs, or a preview image loads. A measured per-track settings change reached the live widget config in 68 ms.
-- LRCLIB 503 and 429 responses are retried with backoff. If a lyric request still fails, the widget retries automatically at 10 s, 30 s, and 60 s instead of showing a permanent “Lyrics unavailable” state. Settings now shows the real reason, such as “LRCLIB is busy”.
+- Settings controls now keep editing the live config after a save. Previously, the first change after each render could save while later changes went to a stale object and were silently skipped.
+- Track title and artist alignment now follows the Typography alignment setting.
+- LRCLIB 429 and 5xx responses are retried with backoff, then the lrcmux fallback is tried. If both fail, the widget retries automatically at 10 s, 30 s, and 60 s instead of showing a permanent “Lyrics unavailable” state. Settings now names the real state, such as “Lyrics services are busy”.
 - A line transition now requests its own redraw immediately instead of waiting for an unrelated SMTC or progress event. Playback updates animate the new line instead of snapping, so every line change uses the full slide/fade.
+- Lyrics-only mode no longer draws the track title and artist over the first lyric. Island clips its lone lyric row so surrounding lines cannot bleed into the metadata.
 - Lyric scrolling now lays out variable-height wrapped rows and scrolls by the outgoing line's actual height, with the surrounding lines already in the viewport.
 - Settings IPC commands now run on background threads. Saving, status polling, presets, resets, preview images, and lyric retries no longer block the settings WebView or its click handling.
 - Settings edits are throttled at 32 ms instead of debounced for 140 ms. A late save response can no longer overwrite edits made while that save was in flight, and preset/reset actions wait for pending saves first.

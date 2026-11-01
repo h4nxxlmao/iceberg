@@ -1,6 +1,6 @@
 [package]
 name = "iceberg"
-version = "0.1.0"
+version = "0.2.0"
 description = "A tiny, transparent now-playing and lyrics widget for Windows"
 authors = ["h4nxxlmao"]
 license = "GPL-3.0-only"

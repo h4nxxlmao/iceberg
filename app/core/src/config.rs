@@ -29,6 +29,7 @@ pub enum WidgetMode {
     Island,
     #[default]
     Card,
+    Player,
     Lyrics,
 }
 
@@ -153,8 +154,6 @@ pub struct Typography {
     pub case: TextCase,
     pub active_color: String,
     pub inactive_opacity: f64,
-    pub show_marker: bool,
-    pub marker_color: String,
     pub shadow: bool,
     pub outline: bool,
     pub visible_lines: u32,
@@ -294,8 +293,6 @@ impl Default for Typography {
             case: TextCase::Original,
             active_color: "#f1ede3".to_string(),
             inactive_opacity: 0.34,
-            show_marker: true,
-            marker_color: "#f1ede3".to_string(),
             shadow: true,
             outline: false,
             visible_lines: 5,
@@ -478,8 +475,6 @@ impl Config {
         typography.line_height = clamp_f64(typography.line_height, 1.0, 2.0);
         typography.active_color =
             sanitize_hex(&typography.active_color).unwrap_or_else(|| "#f1ede3".to_string());
-        typography.marker_color =
-            sanitize_hex(&typography.marker_color).unwrap_or_else(|| "#f1ede3".to_string());
         typography.inactive_opacity = clamp_f64(typography.inactive_opacity, 0.15, 0.85);
         typography.visible_lines = typography.visible_lines.clamp(3, 7);
         typography.transition_ms = typography.transition_ms.clamp(100, 600);

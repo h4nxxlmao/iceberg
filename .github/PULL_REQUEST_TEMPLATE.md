@@ -4,20 +4,24 @@
 
 ## Why
 
-<!-- The reason for the change. -->
+<!-- The problem this solves. -->
 
 ## How it was tested
 
 - Windows version:
 - Player(s):
-- Memory / CPU numbers if rendering or the window changed:
+- Installation type:
+- Screenshots or recordings, for visual changes:
+- Memory / CPU numbers, if rendering or the window changed:
 
 ## Checklist
 
-- [ ] `cargo fmt --check` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
-- [ ] `cargo test` passes
-- [ ] `npm run check` and `npm run build` pass
+- [ ] `cargo fmt --all --check` passes
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
+- [ ] `cargo test --workspace` passes
+- [ ] `npm --prefix app/settings run build` passes
 - [ ] `CHANGELOG.md` updated for user-visible changes
-- [ ] No new telemetry or network hosts
+- [ ] README or docs updated if behavior changed
+- [ ] No new telemetry or network hosts beyond LRCLIB and the documented lrcmux fallback
 - [ ] Performance budget respected, or the trade-off is explained above
+- [ ] No secrets, user font files, build output, installers, `site/`, or `AGENTS.md` staged

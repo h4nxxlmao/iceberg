@@ -1,10 +1,11 @@
 {
   "name": "iceberg-settings-ui",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "GPL-3.0-only",
   "type": "module",
   "scripts": {
+    "predev": "cargo build --manifest-path ../Cargo.toml -p iceberg-widget",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri"

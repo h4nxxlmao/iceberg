@@ -4,7 +4,7 @@
 
 | Version | Supported |
 | --- | --- |
-| 0.1.x | Yes |
+| 0.2.x | Yes |
 | Anything older | No |
 
 ## Reporting a vulnerability
@@ -27,14 +27,14 @@ You can expect an acknowledgement within 7 days and an initial assessment within
 In scope:
 
 - The native Iceberg widget, the settings companion, and the installer
-- The LRCLIB request path and cache handling
+- The LRCLIB and lrcmux fallback request paths, and cache handling
 - The local settings IPC pipe and the settings WebView2 configuration
 - Font import, config validation, and the HKCU autostart entry
 - Memory-safety issues in the Rust and Windows API code
 
 Out of scope:
 
-- LRCLIB itself and the content it serves
+- LRCLIB, lrcmux, and the content they serve
 - Third-party players and their SMTC implementations
 - Windows, WebView2, or GPU driver vulnerabilities with no Iceberg-specific trigger
 - Reports that require an already-compromised machine
@@ -43,7 +43,7 @@ Out of scope:
 
 - The widget is native Rust. It creates a layered window directly and has no WebView or browser engine.
 - Iceberg listens to Windows SMTC locally. It does not read player credentials, cookies, or files.
-- Iceberg's own network requests only go to `lrclib.net`, over HTTPS. Responses are size-limited and parsed defensively.
+- Iceberg's own network requests go to `lrclib.net` and, as a fallback when LRCLIB is unavailable or has no match, the LRCLIB-compatible endpoint at `api.lrcmux.dev`. Both use HTTPS. Responses are size-limited and parsed defensively.
 - The settings companion uses WebView2 only while the window is open. It loads bundled local assets under a strict CSP; there is no remote content, asset protocol, or eval.
 - The settings frontend has no filesystem, shell, or HTTP permission. It calls a small set of app commands: read/update config, read fonts and preview images, import a font through a native file dialog, and reveal the widget.
 - Lyrics, titles, artists, and imported font family names are untrusted. The widget renders lyric text natively; the settings UI inserts display text as text nodes or escaped HTML. Images are native renderer output or local font data.

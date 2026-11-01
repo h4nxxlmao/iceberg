@@ -34,7 +34,7 @@ This code of conduct applies in all project spaces, and when an individual is of
 
 ## Reporting
 
-Do not open a public issue about a conduct problem. Use GitHub's private vulnerability reporting on this repository, or contact the maintainer privately through their GitHub profile. Reports will be reviewed promptly and fairly. Maintainers will respect the privacy and security of the reporter.
+Do not open a public issue about a conduct problem. Contact the maintainer privately through their GitHub profile ([@h4nxxlmao](https://github.com/h4nxxlmao)). Reports will be reviewed promptly and fairly. Maintainers will respect the privacy and security of the reporter.
 
 ## Enforcement guidelines
 

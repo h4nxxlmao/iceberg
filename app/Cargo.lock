@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1624,7 +1624,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-settings"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "iceberg-core",
@@ -1637,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-widget"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cosmic-text",
  "iceberg-core",
@@ -5585,7 +5585,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "yazi"

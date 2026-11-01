@@ -44,6 +44,10 @@ jobs:
         working-directory: app/settings
         run: npm ci
 
+      - name: Build settings frontend
+        working-directory: app/settings
+        run: npm run build
+
       - name: Test
         working-directory: app
         run: cargo test --workspace

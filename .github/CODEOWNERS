@@ -1,0 +1,7 @@
+# Default owner for everything in the repository.
+* @h4nxxlmao
+
+# Community and release files need the maintainer's review too.
+/.github/ @h4nxxlmao
+/CONTRIBUTING.md @h4nxxlmao
+/SECURITY.md @h4nxxlmao

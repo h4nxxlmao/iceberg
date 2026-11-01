@@ -2,6 +2,15 @@
 
 Thanks for helping. Iceberg is intentionally small and fast; please keep changes focused.
 
+## Ways to help
+
+- Report a bug with the [bug report form](https://github.com/h4nxxlmao/iceberg/issues/new/choose). Include the player, Windows version, and whether you used the installer, portable build, or source.
+- Request a feature with the problem it solves and its performance cost.
+- Fix something from the [roadmap](docs/ROADMAP.md), or improve the docs and tests.
+- Report vulnerabilities privately through [SECURITY.md](SECURITY.md), never in a public issue.
+
+By participating, you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Workspace
 
 ```text
@@ -19,7 +28,8 @@ The widget is native Rust. Only the settings companion uses WebView2. Do not add
 ## Prerequisites
 
 - Windows 10/11 x64
-- Rust stable 1.90 or newer
+- Rust stable 1.90 or newer with the MSVC toolchain
+- Visual Studio 2022 Build Tools with **Desktop development with C++** and the Windows SDK
 - Node.js 22 LTS and npm for the settings frontend and packaging
 - WebView2 runtime for running the settings window
 
@@ -43,10 +53,9 @@ cargo run -p iceberg-widget -- --demo
 cargo run -p iceberg-widget -- --demo --background=liquid
 ```
 
-Run the settings app in development. Build the widget first; the settings backend looks for `iceberg.exe` next to the debug settings executable:
+Run the settings app in development. The dev command builds the widget first, so the settings backend always finds a current `iceberg.exe` next to the debug settings executable:
 
 ```powershell
-cargo build -p iceberg-widget
 npm --prefix settings run tauri -- dev --no-watch
 ```
 
@@ -117,7 +126,7 @@ Do not add:
 - WebView2, remote content, UI kits, icon packs, or web fonts to the widget
 - DWM acrylic or live desktop capture
 - Per-frame progress updates
-- Dependencies with heavy trees, copyleft licenses, or new network hosts
+- Dependencies with heavy trees, copyleft licenses, or network hosts beyond LRCLIB and the lrcmux fallback
 - Telemetry, analytics, or crash reporting
 
 If a feature cannot fit the budget, make it opt-in and say so, or leave it out.
@@ -158,7 +167,7 @@ Do not add tool attribution, co-author trailers, or "generated with" footers to 
 - Memory/CPU numbers if behavior or rendering changed
 - `cargo fmt --all --check`, clippy, tests, and `npm --prefix settings run build` all pass
 - `CHANGELOG.md` updated for user-visible changes
-- No new telemetry or network hosts
+- No new telemetry or network hosts beyond LRCLIB and the lrcmux fallback
 - No secrets, user font files, build output, installers, `site/`, or `AGENTS.md` staged
 - Settings changes checked in both light and dark Windows themes when visual
 

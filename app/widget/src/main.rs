@@ -41,7 +41,7 @@ const USAGE: &str = "\
 Usage: iceberg [options]
 
   --demo                 show the built-in demo track instead of Windows media
-  --mode=card|lyrics|island
+  --mode=card|player|lyrics|island
   --background=solid|transparent|acrylic|ice|liquid
   --scale=100|150|200    override the monitor scale for layout testing
   --click-through        start with mouse input passing through the widget
@@ -70,6 +70,7 @@ fn parse_args(args: &[String]) -> Result<app::Options, String> {
                 if let Some(value) = arg.strip_prefix("--mode=") {
                     options.mode = Some(match value {
                         "card" => WidgetMode::Card,
+                        "player" => WidgetMode::Player,
                         "lyrics" => WidgetMode::Lyrics,
                         "island" => WidgetMode::Island,
                         other => return Err(format!("unknown mode '{other}'")),

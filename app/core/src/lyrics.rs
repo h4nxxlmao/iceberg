@@ -8,8 +8,10 @@ use crate::cache;
 use crate::model::{LyricLine, Lyrics, LyricsKind, SearchResult, Track, Word};
 use crate::util::{clean_artist, clean_title};
 
-const USER_AGENT: &str = "Iceberg/0.1.0 (https://github.com/h4nxxlmao/iceberg)";
+const USER_AGENT: &str = "Iceberg/0.2.0 (https://github.com/h4nxxlmao/iceberg)";
 const MAX_BODY: u64 = 2 * 1024 * 1024;
+const LRCLIB_API: &str = "https://lrclib.net/api";
+const LRC_MUX_API: &str = "https://api.lrcmux.dev/compat/lrclib/api";
 
 #[derive(Clone, Debug, Deserialize)]
 struct ApiTrack {
@@ -68,8 +70,9 @@ impl ApiTrack {
     }
 }
 
-/// LRCLIB client plus the on-disk lyric cache. All network calls are HTTPS to lrclib.net
-/// with a five second timeout and a two megabyte response cap.
+/// Lyrics client plus the on-disk lyric cache. LRCLIB is the primary source; the
+/// lrcmux compatibility endpoint is tried when LRCLIB fails or has no match. Network
+/// calls are HTTPS with a five second timeout and a two megabyte response cap.
 pub struct LyricsService {
     agent: ureq::Agent,
     cache_dir: PathBuf,
@@ -107,8 +110,8 @@ impl LyricsService {
         }
 
         match self.fetch_network(track) {
-            Ok(Some(api)) => {
-                let lyrics = lyrics_from_api(track, &api);
+            Ok(Some((api, source))) => {
+                let lyrics = lyrics_from_api(track, &api, source);
                 cache::write_lyrics(
                     &self.cache_dir,
                     &track.key,
@@ -123,13 +126,17 @@ impl LyricsService {
                 lyrics
             }
             Err(error) => {
-                let message = if error.contains("503")
+                let lower = error.to_lowercase();
+                let message = if error.contains("500")
+                    || error.contains("502")
+                    || error.contains("503")
+                    || error.contains("504")
                     || error.contains("429")
-                    || error.to_lowercase().contains("busy")
+                    || lower.contains("busy")
                 {
-                    "LRCLIB is busy".to_string()
-                } else if error.to_lowercase().contains("network") {
-                    "Can't reach LRCLIB".to_string()
+                    "Lyrics services are busy".to_string()
+                } else if lower.contains("network") {
+                    "Can't reach lyric services".to_string()
                 } else {
                     error
                 };
@@ -152,7 +159,8 @@ impl LyricsService {
         }
         let params = vec![("q".to_string(), clean.chars().take(200).collect())];
         let items = self
-            .http_json::<Vec<ApiTrack>>("https://lrclib.net/api/search", &params)?
+            .http_json::<Option<Vec<ApiTrack>>>(&format!("{LRCLIB_API}/search"), &params)?
+            .flatten()
             .unwrap_or_default();
         Ok(items.iter().take(20).map(ApiTrack::search_result).collect())
     }
@@ -161,7 +169,7 @@ impl LyricsService {
         let api = self
             .api_get_by_id(id)?
             .ok_or("LRCLIB has no record for that id")?;
-        let lyrics = lyrics_from_api(track, &api);
+        let lyrics = lyrics_from_api(track, &api, "lrclib");
         if lyrics.kind == LyricsKind::None {
             return Err("That result has no lyrics".to_string());
         }
@@ -229,10 +237,10 @@ impl LyricsService {
                 }
                 Err(ureq::Error::Status(404, _)) => return Ok(None),
                 Err(ureq::Error::Status(code, _)) if code == 429 || code >= 500 => {
-                    last_error = format!("LRCLIB returned {code}");
+                    last_error = format!("Lyrics service returned {code}");
                 }
                 Err(ureq::Error::Status(code, _)) => {
-                    return Err(format!("LRCLIB returned {code}"));
+                    return Err(format!("Lyrics service returned {code}"));
                 }
                 Err(ureq::Error::Transport(error)) => {
                     last_error = format!("Network error: {error}");
@@ -245,7 +253,7 @@ impl LyricsService {
         Err(last_error)
     }
 
-    fn api_get(&self, track: &Track) -> Result<Option<ApiTrack>, String> {
+    fn api_get(&self, base: &str, track: &Track) -> Result<Option<ApiTrack>, String> {
         let mut query = vec![
             ("track_name".to_string(), clean_title(&track.title)),
             ("artist_name".to_string(), clean_artist(&track.artist)),
@@ -260,18 +268,24 @@ impl LyricsService {
                 (track.duration_ms / 1000).to_string(),
             ));
         }
-        self.http_json("https://lrclib.net/api/get", &query)
+        self.http_json(&format!("{base}/get"), &query)
     }
 
-    fn api_search(&self, track: &Track) -> Result<Vec<ApiTrack>, String> {
+    fn api_search(
+        &self,
+        base: &str,
+        track: &Track,
+        free_text: bool,
+    ) -> Result<Vec<ApiTrack>, String> {
         let query = vec![
             ("track_name".to_string(), clean_title(&track.title)),
             ("artist_name".to_string(), clean_artist(&track.artist)),
         ];
         let mut items = self
-            .http_json::<Vec<ApiTrack>>("https://lrclib.net/api/search", &query)?
+            .http_json::<Option<Vec<ApiTrack>>>(&format!("{base}/search"), &query)?
+            .flatten()
             .unwrap_or_default();
-        if items.is_empty() {
+        if items.is_empty() && free_text {
             // LRCLIB's structured search can miss decorated titles and featured artists.
             let free = format!(
                 "{} {}",
@@ -281,10 +295,11 @@ impl LyricsService {
             let free = free.trim();
             if !free.is_empty() {
                 items = self
-                    .http_json::<Vec<ApiTrack>>(
-                        "https://lrclib.net/api/search",
+                    .http_json::<Option<Vec<ApiTrack>>>(
+                        &format!("{base}/search"),
                         &[("q".to_string(), free.to_string())],
                     )?
+                    .flatten()
                     .unwrap_or_default();
             }
         }
@@ -292,28 +307,58 @@ impl LyricsService {
     }
 
     fn api_get_by_id(&self, id: u64) -> Result<Option<ApiTrack>, String> {
-        self.http_json(&format!("https://lrclib.net/api/get/{id}"), &[])
+        self.http_json(&format!("{LRCLIB_API}/get/{id}"), &[])
     }
 
-    fn fetch_network(&self, track: &Track) -> Result<Option<ApiTrack>, String> {
-        if let Some(item) = self.api_get(track)? {
+    fn fetch_from(
+        &self,
+        base: &str,
+        track: &Track,
+        free_text: bool,
+        by_id: bool,
+    ) -> Result<Option<ApiTrack>, String> {
+        if let Some(item) = self.api_get(base, track)? {
             if item.has_synced() || item.has_plain() || item.is_instrumental() {
                 return Ok(Some(item));
             }
         }
-        let results = self.api_search(track)?;
+        let results = self.api_search(base, track, free_text)?;
         let Some(best) = best_match(&results, track.duration_ms) else {
             return Ok(None);
         };
         if best.has_synced() || best.has_plain() || best.is_instrumental() {
             return Ok(Some(best.clone()));
         }
-        if best.id > 0 {
+        if by_id && best.id > 0 {
             if let Some(detail) = self.api_get_by_id(best.id)? {
                 return Ok(Some(detail));
             }
         }
         Ok(None)
+    }
+
+    fn fetch_network(&self, track: &Track) -> Result<Option<(ApiTrack, &'static str)>, String> {
+        let primary = self
+            .fetch_from(LRCLIB_API, track, true, true)
+            .map_err(|error| format!("LRCLIB: {error}"));
+        match primary {
+            Ok(Some(item)) => Ok(Some((item, "lrclib"))),
+            Ok(None) => match self
+                .fetch_from(LRC_MUX_API, track, false, false)
+                .map_err(|error| format!("backup: {error}"))
+            {
+                Ok(Some(item)) => Ok(Some((item, "lrcmux"))),
+                Ok(None) | Err(_) => Ok(None),
+            },
+            Err(primary_error) => match self
+                .fetch_from(LRC_MUX_API, track, false, false)
+                .map_err(|error| format!("backup: {error}"))
+            {
+                Ok(Some(item)) => Ok(Some((item, "lrcmux"))),
+                Ok(None) => Err(format!("{primary_error}; backup has no match")),
+                Err(backup_error) => Err(format!("{primary_error}; {backup_error}")),
+            },
+        }
     }
 }
 
@@ -488,14 +533,14 @@ fn is_instrumental_text(text: &str) -> bool {
         || lower.contains("(instrumental)")
 }
 
-fn lyrics_from_api(track: &Track, api: &ApiTrack) -> Lyrics {
+fn lyrics_from_api(track: &Track, api: &ApiTrack, source: &str) -> Lyrics {
     if api.is_instrumental() {
         return Lyrics {
             track_key: track.key.clone(),
             kind: LyricsKind::Instrumental,
             lines: Vec::new(),
             plain: plain_text(api.plain_lyrics.as_deref()),
-            source: "lrclib".to_string(),
+            source: source.to_string(),
             message: "Instrumental".to_string(),
         };
     }
@@ -507,7 +552,7 @@ fn lyrics_from_api(track: &Track, api: &ApiTrack) -> Lyrics {
                 kind: LyricsKind::Instrumental,
                 lines: Vec::new(),
                 plain: plain_text(api.plain_lyrics.as_deref()),
-                source: "lrclib".to_string(),
+                source: source.to_string(),
                 message: "Instrumental".to_string(),
             };
         }
@@ -518,7 +563,7 @@ fn lyrics_from_api(track: &Track, api: &ApiTrack) -> Lyrics {
                 kind: LyricsKind::Synced,
                 lines: parsed,
                 plain: plain_text(api.plain_lyrics.as_deref()),
-                source: "lrclib".to_string(),
+                source: source.to_string(),
                 message: String::new(),
             };
         }
@@ -532,7 +577,7 @@ fn lyrics_from_api(track: &Track, api: &ApiTrack) -> Lyrics {
                 kind: LyricsKind::Instrumental,
                 lines: Vec::new(),
                 plain,
-                source: "lrclib".to_string(),
+                source: source.to_string(),
                 message: "Instrumental".to_string(),
             };
         }
@@ -541,12 +586,12 @@ fn lyrics_from_api(track: &Track, api: &ApiTrack) -> Lyrics {
             kind: LyricsKind::Plain,
             lines: Vec::new(),
             plain,
-            source: "lrclib".to_string(),
+            source: source.to_string(),
             message: String::new(),
         };
     }
 
-    none_lyrics(track, "lrclib")
+    none_lyrics(track, source)
 }
 
 fn lyrics_from_manual(track: &Track, text: &str, source: &str) -> Lyrics {
@@ -699,6 +744,27 @@ mod tests {
     }
 
     #[test]
+    fn backup_compat_response_parses_as_synced_lyrics() {
+        let api: ApiTrack = serde_json::from_str(
+            r#"{
+                "id": 7,
+                "trackName": "Song",
+                "artistName": "Artist",
+                "albumName": "Album",
+                "duration": 200,
+                "syncedLyrics": "[00:01.00]Backup line",
+                "plainLyrics": "Backup line",
+                "instrumental": false
+            }"#,
+        )
+        .unwrap();
+        let lyrics = lyrics_from_api(&test_track(), &api, "lrcmux");
+        assert_eq!(lyrics.kind, LyricsKind::Synced);
+        assert_eq!(lyrics.source, "lrcmux");
+        assert_eq!(lyrics.lines[0].text, "Backup line");
+    }
+
+    #[test]
     fn missing_override_returns_cache_miss_without_network_when_cached() {
         let directory = tempfile::tempdir().unwrap();
         let service = LyricsService::new(directory.path().to_path_buf());
@@ -707,6 +773,28 @@ mod tests {
         cache::write_lyrics(service.cache_dir(), &track.key, Some(&lyrics), true);
         let fetched = service.fetch_for(&track, false);
         assert_eq!(fetched.kind, LyricsKind::None);
+    }
+
+    #[test]
+    #[ignore]
+    fn lrcmux_roundtrip() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = LyricsService::new(directory.path().to_path_buf());
+        let track = Track {
+            key: "lrcmux-test".to_string(),
+            title: "Midnight City".to_string(),
+            artist: "M83".to_string(),
+            album: "Hurry Up, We're Dreaming".to_string(),
+            duration_ms: 244_000,
+            cover_png: None,
+            accent: None,
+            source_app: "test".to_string(),
+        };
+        let item = service
+            .fetch_from(LRC_MUX_API, &track, false, false)
+            .expect("lrcmux request")
+            .expect("lrcmux match");
+        assert!(item.has_synced() || item.has_plain() || item.is_instrumental());
     }
 
     #[test]

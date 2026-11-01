@@ -3,11 +3,17 @@ description: Suggest a change or a new feature
 title: "[feature] "
 labels: ["enhancement"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Iceberg has hard RAM, CPU, and installer budgets. Explain the problem you want solved, not only the control you want added.
+
   - type: textarea
     id: problem
     attributes:
       label: What problem does this solve?
-      description: Describe the situation, not only the solution.
+      description: Describe the situation and who it affects.
+      placeholder: When I ...
     validations:
       required: true
 
@@ -15,14 +21,23 @@ body:
     id: proposal
     attributes:
       label: Proposed behavior
+      description: What should Iceberg do instead?
     validations:
       required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing settings, workarounds, or simpler options.
+    validations:
+      required: false
 
   - type: textarea
     id: budget
     attributes:
       label: Performance impact
-      description: Iceberg has hard RAM, CPU, and installer budgets. How would this fit?
+      description: Does it run only on an event, add a timer, or add a network host? The budget is in CONTRIBUTING.md.
       placeholder: "It only runs on track change / adds no polling / ..."
     validations:
-      required: false
+      required: true

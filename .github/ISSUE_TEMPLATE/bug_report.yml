@@ -6,13 +6,16 @@ body:
   - type: markdown
     attributes:
       value: |
+        Thanks for the report. Please search existing issues first.
+
         Do not report security issues here. Use the Security tab and private vulnerability reporting.
 
   - type: input
     id: version
     attributes:
       label: Iceberg version
-      placeholder: 0.1.0
+      description: The version shown in Settings → About, or the commit if you built from source.
+      placeholder: 0.2.0
     validations:
       required: true
 
@@ -24,12 +27,23 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation
+      options:
+        - Installer
+        - Portable ZIP
+        - Built from source
+    validations:
+      required: true
+
   - type: input
     id: player
     attributes:
       label: Player app
       description: The app that was playing when it went wrong.
-      placeholder: Spotify desktop, YouTube in Edge, Apple Music
+      placeholder: Spotify desktop, Apple Music, YouTube in Edge
     validations:
       required: true
 
@@ -39,7 +53,7 @@ body:
       label: Steps to reproduce
       placeholder: |
         1. Play a track in ...
-        2. Hover the widget ...
+        2. Open the widget ...
         3. See ...
     validations:
       required: true
@@ -52,10 +66,28 @@ body:
       required: true
 
   - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Include the exact message if there is one.
+    validations:
+      required: true
+
+  - type: textarea
     id: logs
     attributes:
       label: Screenshots, logs, or diagnostics
-      description: Remove personal information first. Diagnostics are in Settings → Advanced.
+      description: Remove personal information first. If you run from source, include the widget console output.
       render: text
     validations:
       required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the README and existing issues.
+          required: true
+        - label: I removed personal information from screenshots and logs.
+          required: true

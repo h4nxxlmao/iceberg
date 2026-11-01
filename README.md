@@ -1,193 +1,176 @@
-# Iceberg
+<p align="center">
+  <img src="app/settings/src-tauri/icons/128x128.png" width="88" alt="Iceberg icon">
+</p>
 
-[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+<h1 align="center">Iceberg</h1>
 
-A tiny, transparent now-playing and synced-lyrics widget for Windows. It reads the current song from Windows' own media session, fetches synced lyrics from LRCLIB, and stays out of the way.
+<p align="center">
+  <strong>Now playing, with lyrics that follow.</strong><br>
+  A small native widget for Windows. No login, no account, no telemetry.
+</p>
 
-No Spotify login. No API keys. No account. No telemetry. No WebView in the widget.
+<p align="center">
+  <a href="https://github.com/h4nxxlmao/iceberg/actions/workflows/ci.yml"><img src="https://github.com/h4nxxlmao/iceberg/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-blue.svg" alt="License: GPL-3.0-only"></a>
+  <a href="https://github.com/h4nxxlmao/iceberg/releases"><img src="https://img.shields.io/badge/version-0.2.0-5b93a8.svg" alt="Version 0.2.0"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4.svg" alt="Platform: Windows 10 and 11">
+</p>
 
-![Native Card preview](docs/phase-b/card-100.png)
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#build-from-source">Build</a> ·
+  <a href="#privacy-and-security">Privacy</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
 
-Offscreen native render over a neutral review backdrop. The real widget is a transparent layered window on the desktop. The settings companion is a separate WebView2 process that exists only while you are editing settings.
+<p align="center">
+  <img src="docs/screenshots/widget.png" width="440" alt="Iceberg card showing Midnight City by M83 with synced lyrics">
+</p>
 
-## What it does
+<p align="center">
+  <sub>Card mode at 100% scale. The widget itself is a transparent layered window.</sub>
+</p>
 
-- Frameless, always-on-top native widget with Island, Card, and Lyrics modes
-- Event-driven Windows SMTC now-playing; no polling loop
-- Music source picker for Spotify, Apple Music, a custom SMTC app, or an explicit Any app. Browser and YouTube sessions are ignored by default.
-- Time-synced lyrics from [LRCLIB](https://lrclib.net), with plain-text, instrumental, loading, empty, unsynced, and offline states. Settings can force a fresh lookup or copy the current line.
-- Five surfaces: Solid, Transparent, Acrylic, Ice, and Liquid. The textured surfaces share one CPU wallpaper pipeline; there is no DWM acrylic.
-- Slide, fade, and off transitions, plus the configured active color, inactive opacity, alignment, case, letter spacing, line height, shadow, and outline
-- Eight bundled OFL families with lazy per-family loading, cap-height optical scaling, and baseline normalization
-- Poppins is the default typeface, with Lato and the other bundled families available in the picker
-- Long lyric lines wrap like a streaming lyrics view, and the card can show or hide album art and track info
-- Active marker visibility/color, artwork size and rounding, and a configurable interface-animation speed
-- Visual settings swaps and track changes crossfade; lyric lines use a 520 ms scroll/fade
-- Six presets, a story-style font picker, and `.ttf`/`.otf` upload in the settings companion
-- Per-track lyric offsets and font overrides
-- Tray show/hide, settings, click-through, mode cycling, and quit
-- Global hotkeys: toggle, click-through, ±100 ms lyric offset, cycle mode, quick peek, and open settings
-- Edge snapping and a remembered position for each monitor
-- Pause auto-hide, fullscreen auto-hide, optional start with Windows, battery saver, and reduced motion
-- Click-through is restored from the tray or its hotkey
-- Tray-only mode creates no window, no WebView, and loads no font data until playback exists
+Iceberg reads the current track from Windows' media session and fetches synced lyrics from [LRCLIB](https://lrclib.net), with a [lrcmux](https://lrcmux.dev) fallback when LRCLIB is unavailable. It sits on the desktop as a small, frameless widget, follows the song, and stays out of the way. Spotify and Apple Music work without signing in; nothing is scraped from a browser.
 
-The settings window is the real widget's preview: while it is open, the native widget shows the current track or a demo track. Closing Settings removes the preview and leaves the widget in the tray. Settings itself exits completely.
+## Features
 
-![Settings appearance](docs/phase-d/settings-appearance.png)
+- **A real desktop widget.** Card, Player-only, Lyrics-only, and Island modes, five surfaces (Solid, Transparent, Acrylic, Ice, Liquid), six presets, and per-monitor positions with edge snapping.
+- **Your player, not every tab.** Pick Spotify, Apple Music, a custom media app, or Any app. Browser and YouTube sessions are ignored by default.
+- **Lyrics that keep up.** Time-synced LRCLIB lyrics, with a lrcmux fallback when LRCLIB is down or has no match. Wrapping, per-track offset, cached results, automatic retry, and a manual "look up again" action.
+- **Live customization.** Font, size, weight, color, opacity, alignment, case, spacing, shadow, outline, album art, visible lyric lines, and transition speed. Changes reach the widget immediately.
+- **Motion in the right places.** Lyric lines slide and fade, the card scrolls by the outgoing line's real height, and surface, preset, font, and track changes crossfade instead of snapping.
+- **Keyboard and tray controls.** Global hotkeys for show/hide, click-through, lyric offset, mode cycling, quick peek, and settings.
+- **Quiet by default.** Pause and fullscreen auto-hide, battery saver, reduced motion, click-through, optional start with Windows, and a tray-only mode that creates no window until something plays.
+- **Small and private.** The widget is native Rust with no WebView. No polling loop, no telemetry, and no account.
 
-![Settings typography](docs/phase-d/settings-typography.png)
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/player.png" width="300" alt="Player-only mode showing album art, title, artist, and progress">
+  <img src="docs/screenshots/lyrics.png" width="300" alt="Lyrics-only mode with no track metadata">
+</p>
+
+<p align="center">
+  <sub>Player only and Lyrics only. Card and Island are available in the same mode picker.</sub>
+</p>
+
+![Iceberg settings](docs/screenshots/settings.png)
+
+*The settings window is a live preview. It uses WebView2 only while it is open; closing it leaves the widget in the tray.*
 
 ## Install
 
-Download the current installer or portable ZIP from [GitHub Releases](https://github.com/h4nxxlmao/iceberg/releases).
+Iceberg runs on Windows 10 and 11 (x64). The settings window needs the Microsoft WebView2 runtime. Windows 11 includes it; the Windows 10 installer can fetch it.
 
-- The installer is per-user and does not require administrator rights.
-- The settings companion uses the Microsoft WebView2 runtime. Windows 11 includes it; the installer can fetch it on Windows 10.
-- Windows builds are unsigned, so SmartScreen may show an “Unknown publisher” warning. Verify the SHA-256 checksum attached to the release before choosing **More info → Run anyway**.
-- The portable ZIP contains `iceberg.exe`, `iceberg-settings.exe`, the fonts, presets, surface thumbnails, and icons. Run `iceberg-settings.exe` or `iceberg.exe`.
+Download the current installer or portable ZIP from [Releases](https://github.com/h4nxxlmao/iceberg/releases). Each release includes SHA-256 checksums.
+
+- The installer is per-user and does not need administrator rights.
+- Windows builds are unsigned, so SmartScreen may show an "Unknown publisher" warning. Verify the checksum before choosing **More info → Run anyway**.
+- The portable build contains `iceberg.exe`, `iceberg-settings.exe`, the fonts, presets, surface images, and icons.
 
 ## Build from source
 
-Requirements: Windows 10/11 x64, Rust stable 1.90 or newer, Node.js 22 LTS, and the WebView2 runtime for the settings window.
+You need:
+
+- Windows 10 or 11 x64
+- Rust 1.90 or newer, with the MSVC toolchain
+- Visual Studio 2022 Build Tools with **Desktop development with C++** and the Windows SDK
+- Node.js 22 LTS and npm
+- WebView2, for the settings window
 
 ```powershell
-cd app
+git clone https://github.com/h4nxxlmao/iceberg.git
+cd iceberg/app
 npm --prefix settings ci
 cargo xtask package
 ```
 
-`cargo xtask package` builds the frontend, the release widget and settings executables, the portable folder at `app/dist/Iceberg`, and an NSIS installer under `app/target/release/bundle/nsis`. The installer step downloads the Tauri NSIS tool the first time and needs network access; the portable folder is produced before that step.
+`cargo xtask package` builds the settings frontend, the release widget and settings executables, the portable folder at `app/dist/Iceberg`, and the NSIS installer under `app/target/release/bundle/nsis`. The first installer build downloads the Tauri NSIS tool.
 
-For a quick native run with the built-in demo:
+To run the widget with the built-in demo:
 
 ```powershell
 cargo run -p iceberg-widget -- --demo
 cargo run -p iceberg-widget -- --demo --background=liquid
 ```
 
-For the settings app in development, build the widget first so the settings can launch it, then run the Tauri dev server:
+To run the settings window in development:
 
 ```powershell
-cargo build -p iceberg-widget
 npm --prefix settings run tauri -- dev --no-watch
 ```
 
-The settings executable lives next to `iceberg.exe` in `app/target/debug`; the companion process looks for it there. In a packaged build, both executables and the assets are installed together.
+The dev command builds the widget first, so Settings always launches the current native binary.
 
-Regenerate the native preset and surface thumbnails after changing presets or surfaces:
-
-```powershell
-cargo xtask
-```
-
-Render review screenshots with the synthetic wallpaper instead of the build machine's desktop:
+Before opening a pull request, run:
 
 ```powershell
-cargo run -p iceberg-widget -- --screenshot=../docs/phase-c
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+npm --prefix settings run build
 ```
 
-Run the warm transition benchmark:
-
-```powershell
-cargo run -p iceberg-widget -- --bench=../docs/phase-c/bench-100-acrylic.json --background=acrylic --scale=100
-```
+More detail is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Performance
 
-The surface renderer is unchanged from the Phase C measurements. The final build adds the local settings pipe, fullscreen hook, global hotkeys, and tray actions; the release size and one-sample memory figures below include them. The table is the median of three release runs; total CPU is normalized across the build machine's 16 logical processors. Working set and private bytes are for `iceberg.exe`; there are no child processes while the widget is visible. The warm background column is the rebuild after a move settle with masks already warm; the value after the slash is the backdrop pipeline alone.
+Iceberg is event-driven. It does not poll, and it does not render frames while paused, hidden, or idle.
 
-| Surface | Scale | Window | Transition CPU total | Idle | Working set / private | Warm background / pipeline |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Solid | 100% | 388 x 245 | 0.54% | 0% | 20.7 / 6.9 MB | 7.3 / 0 ms |
-| Transparent | 100% | 388 x 233 | 0.54% | 0% | 20.6 / 6.9 MB | 3.2 / 0 ms |
-| Acrylic | 100% | 388 x 245 | 0.61% | 0% | 24.0 / 9.6 MB | 54.4 / 30.2 ms |
-| Ice | 100% | 388 x 245 | 0.54% | 0% | 24.0 / 9.6 MB | 38.5 / 15.8 ms |
-| Liquid | 100% | 388 x 245 | 0.51% | 0% | 24.0 / 9.6 MB | 37.7 / 23.2 ms |
-| Acrylic | 200% | 776 x 490 | 1.28% | 0% | 30.3 / 14.5 MB | 154.0 / 53.4 ms |
-| Ice | 200% | 776 x 490 | 1.25% | 0% | 30.2 / 14.4 MB | 113.9 / 57.1 ms |
-| Liquid | 200% | 776 x 490 | 1.52% | 0% | 30.3 / 15.1 MB | 207.5 / 103.9 ms |
+| Measure | Result |
+| --- | ---: |
+| Idle CPU | 0% |
+| Visible with the demo track | 21.9 MB working set / 6.8 MB private |
+| Tray-only trimmed working set | 0.2 MB |
+| Widget executable | 3.49 MiB |
+| Settings executable | 3.02 MiB |
+| NSIS installer | 3.52 MiB |
 
-- All transition CPU totals are under 3%; the highest one-core median is 24.25% at 200% Liquid. Full one-core ranges, raw JSON, and the surface previews are in [Phase C results](docs/phase-c/RESULTS.md).
-- Background rebuilds during the 12 transitions: **0**. Idle CPU is 0% for every surface after the settle.
-- The 200% Liquid rebuild is the most expensive opt-in surface. Solid is the default. Textured processing is capped at 400 px and sampled into the card; the 100% path is unchanged.
-- The final Phase D/E release executable is **3.49 MiB**; settings companion **3.02 MiB**; NSIS installer **3.52 MiB**; portable ZIP **4.98 MiB**; bundled fonts **2.85 MiB**. All are inside the executable and installer budgets.
-- A final visible demo sample measured **21.9 MB working set / 6.8 MB private**; a tray-only release sample measured **0.2 MB trimmed working set / 2.8 MB private**. These are single samples, not the median-of-three renderer table.
-- Tray-only mode loads no wallpaper and no font data. Window teardown drops the wallpaper proxy and font cache.
-- Real mixed-DPI monitor moves, Windows 10, and the 20-minute leak run are still on the verification list. The settings window's WebView2 process is separate and only exists while Settings is open.
-
-## How the surfaces work
-
-- **Solid** uses the configured color and opacity. **Transparent** leaves the actual desktop visible. **Acrylic**, **Ice**, and **Liquid** mirror the Windows wallpaper through one CPU pipeline: crop, blur, tint/frost/noise, optional liquid refraction and highlights, then an antialiased rounded shape.
-- The wallpaper is read from the Windows wallpaper path, decoded with WIC, and kept as a 960 px proxy. Only a textured surface loads it. The proxy is cover-cropped to the monitor and window, so fit, tile, stretch, and span wallpaper modes are approximate.
-- The backdrop is rebuilt after a 120 ms move settle, on resize, and on monitor change. The static card layer, title/artist masks, and text are cached.
-- No DWM acrylic, `SetWindowCompositionAttribute`, or `DwmEnableBlurBehindWindow` is used. Live desktop capture is out of v1; the `live` backdrop source falls back to the wallpaper. Per-monitor wallpapers and wallpaper changes while the widget sits still are not mirrored yet.
-- The review screenshots use a generated wallpaper so the build machine's desktop is not published.
-
-## Fonts
-
-The stock families are Lato, Poppins, Abril Fatface, Barlow Condensed, Amatic SC, Space Mono, Varela Round, and Lobster. Each is SIL Open Font License 1.1; licenses and sources are in [app/assets/fonts](app/assets/fonts/README.md).
-
-Imported fonts are stored in `%LOCALAPPDATA%\Iceberg\fonts`. The core validates the file, rejects empty or oversized files, reads family/subfamily/metrics/variable axes, and falls back to Lato if a requested family cannot be resolved. Weight uses the family's bold face when available and a synthetic embolden above 600 when it is not; italic is a synthetic shear, so the control works for families without an italic file.
-
-The settings font picker renders the current lyric line in every installed family. Font data is loaded one family at a time and the preview is the native glyph rasterizer, not a browser imitation of the widget.
-
-Word timings from enhanced LRC are parsed but word-level highlighting is not implemented yet.
-
-## Settings and configuration
-
-| Path | Contents |
-| --- | --- |
-| `%APPDATA%\Iceberg\config.json` | Settings, per-track offsets and font overrides, per-monitor positions |
-| `%LOCALAPPDATA%\Iceberg\cache` | Lyrics and artwork cache |
-| `%LOCALAPPDATA%\Iceberg\fonts` | Imported font files |
-| `%LOCALAPPDATA%\Iceberg\presets` | User preset folder reserved for a later release |
-| `%LOCALAPPDATA%\Iceberg\widget.log` | Reserved diagnostic log path |
-
-The config is versioned, migrated, and validated on load. Missing or invalid values fall back to defaults. Obsolete prototype-era config files are rewritten to the current schema at startup. Changes from the settings window are applied to the running widget over a per-session named pipe and saved immediately; closing the settings window closes the pipe and removes the preview.
-
-Global hotkeys are editable in Settings. At least one modifier is required. If a shortcut is already used by another application, the widget leaves it unregistered and prints a diagnostic to its console.
+These are single release samples from the build machine, not a guarantee for every desktop. Full renderer measurements and raw results are in [docs/phase-c/RESULTS.md](docs/phase-c/RESULTS.md). The settings window runs in a separate WebView2 process only while it is open.
 
 ## Privacy and security
 
-- The only network requests Iceberg makes go to `lrclib.net` over HTTPS, with timeouts and response size limits.
-- The textured surfaces read the current Windows wallpaper file locally through WIC. The widget does not capture other windows or the live desktop.
-- Lyrics, titles, artists, artwork, and imported font names are untrusted. The native widget draws them as text; it contains no HTML or WebView. The settings window loads only bundled local assets under a strict CSP and escapes display text.
-- The widget contains no telemetry or analytics. The settings companion has only the Tauri `core:default` permissions; it has no filesystem, shell, or arbitrary HTTP permission.
-- The local settings pipe is scoped to the interactive Windows session and exposes only appearance commands. It does not expose files, secrets, network requests, or privilege changes.
-- Autostart uses only the current user's `Run` key and can be turned off in Settings.
-- Font files and config are validated at the boundary. Imported fonts are copied under generated names inside the app's own folder.
+- Iceberg talks to `lrclib.net` over HTTPS, with timeouts and response limits. When LRCLIB is down or has no match, it tries the LRCLIB-compatible endpoint at `api.lrcmux.dev` as a fallback. No other hosts are contacted.
+- The widget has no WebView, no remote content, and no analytics. The settings companion loads bundled local assets under a strict CSP and has only Tauri's core permissions.
+- Lyrics, titles, artists, and imported font names are treated as untrusted text. Config and font files are validated at the boundary.
+- The local settings pipe only changes the widget's appearance. It does not expose files, secrets, network requests, or privilege changes.
+- Autostart writes only to the current user's Windows `Run` key and can be turned off in Settings.
 
-See [SECURITY.md](SECURITY.md) for reporting.
+Read [SECURITY.md](SECURITY.md) before reporting a vulnerability. Please use GitHub's private vulnerability reporting, not a public issue.
 
-## Not done yet
+## FAQ
 
-- Windows 10 verification, two-monitor mixed-DPI testing, and the 20-minute leak run
-- Word-level lyric highlighting
-- Exact wallpaper fit/tile/span mapping, per-monitor wallpapers, and live wallpaper-change detection
-- Live desktop capture
-- A cheaper 200% Liquid rebuild; the current opt-in surface is the most expensive path
+**Do I need a Spotify or Apple Music account?** No. Iceberg reads the Windows media session; it never asks for player credentials.
 
-The old Tauri prototype under `app/src-tauri` is kept for reference only. Neither the widget nor the published settings companion uses it.
+**Why does it ignore YouTube?** Browser sessions are noisy and usually not what a desktop music widget should follow. Choose **Any app** in Settings if you want them.
 
-## Project layout
+**Lyrics are missing for a song.** LRCLIB is a community database, so some tracks have no synced lyrics or only plain text. Iceberg falls back to lrcmux when LRCLIB is down or has no match, retries when both services are overloaded, and explains the real state instead of claiming you are offline. Use **Look up again** in the Lyrics section after a retry.
 
-```
-app/
-  core/              shared config, SMTC, LRCLIB, cache, fonts, presets, IPC schema
-  widget/            native layered widget, renderer, tray, hotkeys, wallpaper capture
-  settings/          Tauri settings companion and vanilla TypeScript UI
-  xtask/             native thumbnail and release packaging helper
-  assets/            fonts, licenses, preset/surface thumbnails, tray icon
-  src-tauri/         previous Tauri prototype (reference only)
-docs/                renderer decision, phase screenshots, measurements
-.github/             CI, release, and security workflows
-```
+**Why does SmartScreen warn me?** Release binaries are not code-signed yet. Check the release SHA-256 checksum before running an unsigned build.
+
+**Does Iceberg collect anything?** No telemetry, analytics, crash reports, or accounts.
+
+## Roadmap
+
+The short version is in [docs/ROADMAP.md](docs/ROADMAP.md). The next work is Windows 10 and mixed-DPI validation, a longer leak run, word-level lyric highlighting, and more accurate wallpaper mapping on multi-monitor setups.
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Run `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and `npm --prefix settings run build` from `app` before opening a pull request.
+Issues and pull requests are welcome. Bug reports get a structured form in [Issues](https://github.com/h4nxxlmao/iceberg/issues/new/choose); feature requests should explain the use case and the performance cost.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the workspace layout, build commands, performance budget, and commit style. By participating, you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+The Rust widget keeps a hard budget: under 10 MB when tray-only, under 40 MB visible, 0% CPU idle, under 3% during a lyric transition, and an installer under 8 MB. If a change cannot fit, make it opt-in or leave it out.
 
 ## License
 
-Iceberg is free software licensed under the **GNU General Public License, version 3 only** (`GPL-3.0-only`). Copyright (C) 2026 h4nxxlmao. See [LICENSE](LICENSE) for the complete terms.
+Iceberg is free software under the **GNU General Public License, version 3 only** (`GPL-3.0-only`). Copyright (C) 2026 h4nxxlmao. See [LICENSE](LICENSE) for the full terms.
+
+The bundled fonts are under the SIL Open Font License; their licenses and sources are in [app/assets/fonts](app/assets/fonts/README.md).
+
+## Acknowledgements
+
+Lyrics come from [LRCLIB](https://lrclib.net), with a fallback through [lrcmux](https://lrcmux.dev). The settings shell uses [Tauri](https://tauri.app), and the native text renderer uses [cosmic-text](https://github.com/pop-os/cosmic-text) and [swash](https://github.com/dfrg/swash). Iceberg is not affiliated with Spotify, Apple, LRCLIB, or lrcmux.

@@ -154,6 +154,20 @@ pub fn render_screenshots(config: &Config, directory: &Path) -> Result<(), Strin
     let view = scene_view(
         &effective,
         &font,
+        WidgetMode::Player,
+        Some(&card),
+        &card_playback,
+        Some(&card_lyrics),
+        &synced,
+        Some(2),
+        74_000,
+        Scale::new(1.0, 100),
+    );
+    render_scene(&mut renderer, &view, &directory.join("player-100.png"))?;
+
+    let view = scene_view(
+        &effective,
+        &font,
         WidgetMode::Island,
         Some(&card),
         &card_playback,

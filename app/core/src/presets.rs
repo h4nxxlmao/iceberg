@@ -53,20 +53,24 @@ pub fn builtin_presets() -> Vec<Preset> {
             name: "Paper".to_string(),
             background: Background {
                 kind: BackgroundKind::Solid,
-                solid_color: "#f1ede3".to_string(),
-                solid_opacity: 0.97,
-                border_color: "#000000".to_string(),
-                border_opacity: 0.10,
+                solid_color: "#ece4d5".to_string(),
+                solid_opacity: 0.98,
+                border_color: "#3c392f".to_string(),
+                border_opacity: 0.08,
                 shadow: true,
+                shadow_opacity: 0.18,
                 ..Background::default()
             },
             typography: Typography {
-                font_family: "Abril Fatface".to_string(),
+                font_family: "Lato".to_string(),
+                font_size: 18.5,
                 weight: 400,
-                active_color: "#171a19".to_string(),
-                inactive_opacity: 0.42,
-                letter_spacing: 0.0,
-                ..typography(17.0, "#171a19", 0.42)
+                letter_spacing: -0.005,
+                line_height: 1.42,
+                active_color: "#20211d".to_string(),
+                inactive_opacity: 0.46,
+                shadow: false,
+                ..typography(18.5, "#20211d", 0.46)
             },
         },
         Preset {
@@ -80,9 +84,16 @@ pub fn builtin_presets() -> Vec<Preset> {
                 ..Background::default()
             },
             typography: Typography {
+                font_family: "Barlow Condensed".to_string(),
+                font_size: 20.0,
+                weight: 500,
+                line_height: 1.30,
+                align: Align::Center,
+                active_color: "#f8f4ea".to_string(),
+                inactive_opacity: 0.40,
                 shadow: true,
                 outline: true,
-                ..typography(18.0, "#f4f1e8", 0.34)
+                ..typography(20.0, "#f8f4ea", 0.40)
             },
         },
         Preset {
@@ -98,11 +109,13 @@ pub fn builtin_presets() -> Vec<Preset> {
                 ..Background::default()
             },
             typography: Typography {
-                active_color: "#172023".to_string(),
-                inactive_opacity: 0.42,
+                font_size: 18.0,
                 weight: 500,
+                align: Align::Center,
+                active_color: "#162024".to_string(),
+                inactive_opacity: 0.44,
                 shadow: false,
-                ..typography(17.0, "#172023", 0.42)
+                ..typography(18.0, "#162024", 0.44)
             },
         },
         Preset {
@@ -120,9 +133,14 @@ pub fn builtin_presets() -> Vec<Preset> {
                 ..Background::default()
             },
             typography: Typography {
+                font_family: "Varela Round".to_string(),
+                font_size: 18.0,
+                weight: 400,
+                line_height: 1.38,
+                align: Align::Center,
                 active_color: "#fbf8ef".to_string(),
-                inactive_opacity: 0.36,
-                ..typography(17.0, "#fbf8ef", 0.36)
+                inactive_opacity: 0.38,
+                ..typography(18.0, "#fbf8ef", 0.38)
             },
         },
         Preset {
@@ -145,6 +163,7 @@ pub fn builtin_presets() -> Vec<Preset> {
                 case: TextCase::Original,
                 active_color: "#dcd8ce".to_string(),
                 inactive_opacity: 0.30,
+                shadow: false,
                 transition: TransitionStyle::Fade,
                 transition_ms: 180,
                 ..typography(16.0, "#dcd8ce", 0.30)
@@ -181,7 +200,7 @@ mod tests {
         assert_eq!(config.active_preset.as_deref(), Some("paper"));
         assert_eq!(config.layout.offset_x, 123);
         assert_eq!(config.effective_offset("song"), 200);
-        assert_eq!(config.typography.font_family, "Abril Fatface");
+        assert_eq!(config.typography.font_family, "Lato");
     }
 
     #[test]
