@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/h4nxxlmao/iceberg/actions/workflows/ci.yml"><img src="https://github.com/h4nxxlmao/iceberg/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-blue.svg" alt="License: GPL-3.0-only"></a>
-  <a href="https://github.com/h4nxxlmao/iceberg/releases"><img src="https://img.shields.io/badge/version-0.2.0-5b93a8.svg" alt="Version 0.2.0"></a>
+  <a href="https://github.com/h4nxxlmao/iceberg/releases/latest"><img src="https://img.shields.io/github/v/release/h4nxxlmao/iceberg?label=release&sort=semver" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4.svg" alt="Platform: Windows 10 and 11">
 </p>
 
@@ -65,7 +65,7 @@ Iceberg reads the current track from Windows' media session and fetches synced l
 
 Iceberg runs on Windows 10 and 11 (x64). The settings window needs the Microsoft WebView2 runtime. Windows 11 includes it; the Windows 10 installer can fetch it.
 
-Download the current installer or portable ZIP from [Releases](https://github.com/h4nxxlmao/iceberg/releases). Each release includes SHA-256 checksums.
+Download **Iceberg 0.2.0** from [Releases](https://github.com/h4nxxlmao/iceberg/releases/tag/v0.2.0). Each release includes SHA-256 checksums.
 
 - The installer is per-user and does not need administrator rights.
 - Windows builds are unsigned, so SmartScreen may show an "Unknown publisher" warning. Verify the checksum before choosing **More info → Run anyway**.
@@ -123,13 +123,14 @@ Iceberg is event-driven. It does not poll, and it does not render frames while p
 | Measure | Result |
 | --- | ---: |
 | Idle CPU | 0% |
-| Visible with the demo track | 21.9 MB working set / 6.8 MB private |
-| Tray-only trimmed working set | 0.2 MB |
-| Widget executable | 3.49 MiB |
-| Settings executable | 3.02 MiB |
-| NSIS installer | 3.52 MiB |
+| Visible with the demo track | 21.2 MB working set / 4.9 MB private |
+| Tray only, no window | 3.0 MB working set / 2.8 MB private |
+| Widget executable | 3.52 MiB |
+| Settings executable | 3.10 MiB |
+| NSIS installer | 3.39 MiB |
+| Portable ZIP | 4.92 MiB |
 
-These are single release samples from the build machine, not a guarantee for every desktop. Full renderer measurements and raw results are in [docs/phase-c/RESULTS.md](docs/phase-c/RESULTS.md). The settings window runs in a separate WebView2 process only while it is open.
+These are single 0.2.0 release samples from the build machine, not a guarantee for every desktop. Full renderer measurements and raw results are in [docs/phase-c/RESULTS.md](docs/phase-c/RESULTS.md). The settings window runs in a separate WebView2 process only while it is open.
 
 ## Privacy and security
 
